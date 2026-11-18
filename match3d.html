@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RL Career Mode — 3D Match Viewer</title>
-  <link rel="stylesheet" href="match3d.css" />
+  <meta name="theme-color" content="#090b0f" />
+  <title>RL Career Mode — Match Center</title>
+  <link rel="stylesheet" href="match3d.css?v=6" />
   <script type="importmap">
     {
       "imports": {
@@ -18,80 +19,105 @@
   <div id="scene"></div>
 
   <div id="loading" class="loading">
-    <div class="loading-mark">RL</div>
-    <div class="loading-title">BUILDING THE ARENA</div>
-    <div class="loading-sub">Loading stadium geometry, crowd and lighting…</div>
+    <div class="loading-brand">
+      <span class="loading-mark">RL</span>
+      <span class="loading-kicker">Career Mode</span>
+    </div>
+    <div class="loading-title">Preparing the arena</div>
+    <div class="loading-bar"><span></span></div>
+    <div class="loading-sub">Stadium · crowd · lighting</div>
   </div>
 
   <header class="hud-top">
     <div class="hud-brand">
       <div class="hud-mark">RL</div>
       <div>
-        <div class="hud-brand-title">CAREER MODE</div>
-        <div class="hud-brand-sub">3D MATCH VIEWER</div>
+        <div class="hud-brand-kicker">Career Mode</div>
+        <div class="hud-brand-title">Match Center</div>
       </div>
     </div>
 
     <div class="scoreboard">
-      <div class="team blue"><span class="team-name">BLUE</span><span class="score" id="scoreBlue">0</span></div>
+      <div class="team blue"><span class="team-name">Blue</span><span class="score" id="scoreBlue">0</span></div>
       <div class="clock-box">
         <div class="clock" id="clock">3:00</div>
-        <div class="clock-label" id="matchState">KICKOFF</div>
+        <div class="clock-label" id="matchState">Kickoff</div>
       </div>
-      <div class="team orange"><span class="score" id="scoreOrange">0</span><span class="team-name">ORANGE</span></div>
+      <div class="team orange"><span class="score" id="scoreOrange">0</span><span class="team-name">Orange</span></div>
     </div>
 
     <div class="hud-right">
-      <div class="rank-chip" id="rankChip">BRONZE</div>
-      <button class="icon-btn" id="backBtn" title="Back to career">✕</button>
+      <div class="rank-chip" id="rankChip">Bronze</div>
+      <button class="icon-btn" id="backBtn" title="Back to career" aria-label="Back to career">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
     </div>
   </header>
 
   <aside class="panel panel-left">
-    <div class="panel-title">BROADCAST</div>
-    <div class="cam-grid">
-      <button class="cam-btn active" data-cam="broadcast">1 · Broadcast</button>
-      <button class="cam-btn" data-cam="chase">2 · Chase</button>
-      <button class="cam-btn" data-cam="ball">3 · Ball</button>
-      <button class="cam-btn" data-cam="orbit">4 · Orbit</button>
-      <button class="cam-btn" data-cam="top">5 · Top</button>
+    <div class="panel-block">
+      <div class="panel-heading"><span>Camera</span><span class="panel-hint">1–5</span></div>
+      <div class="cam-grid">
+        <button class="cam-btn active" data-cam="broadcast"><span>1</span> Broadcast</button>
+        <button class="cam-btn" data-cam="chase"><span>2</span> Chase</button>
+        <button class="cam-btn" data-cam="ball"><span>3</span> Ball</button>
+        <button class="cam-btn" data-cam="orbit"><span>4</span> Orbit</button>
+        <button class="cam-btn" data-cam="top"><span>5</span> Top</button>
+      </div>
     </div>
-    <div class="panel-divider"></div>
-    <div class="panel-title">SKILL LEVEL</div>
-    <select id="skillSelect" class="select">
-      <option value="bronze" selected>Bronze — rookie mistakes</option>
-      <option value="silver">Silver</option>
-      <option value="gold">Gold</option>
-      <option value="platinum">Platinum</option>
-      <option value="diamond">Diamond</option>
-      <option value="champion">Champion</option>
-      <option value="grandchampion">Grand Champion</option>
-      <option value="ssl">Supersonic Legend</option>
-      <option value="pro">Pro League</option>
-    </select>
-    <div class="skill-meter">
-      <div class="skill-meter-fill" id="skillFill"></div>
+
+    <div class="panel-block">
+      <div class="panel-heading"><span>Difficulty</span></div>
+      <select id="skillSelect" class="select">
+        <option value="bronze" selected>Bronze — rookie mistakes</option>
+        <option value="silver">Silver</option>
+        <option value="gold">Gold</option>
+        <option value="platinum">Platinum</option>
+        <option value="diamond">Diamond</option>
+        <option value="champion">Champion</option>
+        <option value="grandchampion">Grand Champion</option>
+        <option value="ssl">Supersonic Legend</option>
+        <option value="pro">Pro League</option>
+      </select>
+      <div class="skill-meter">
+        <div class="skill-meter-fill" id="skillFill"></div>
+      </div>
+      <div class="skill-label" id="skillDesc">Low speed, poor accuracy, frequent whiffs.</div>
     </div>
-    <div class="skill-label" id="skillDesc">Low speed, poor accuracy, frequent whiffs.</div>
-    <div class="panel-divider"></div>
-    <div class="stat-row"><span>Speed</span><strong id="statSpeed">—</strong></div>
-    <div class="stat-row"><span>Accuracy</span><strong id="statAccuracy">—</strong></div>
-    <div class="stat-row"><span>Whiff chance</span><strong id="statWhiff">—</strong></div>
-    <div class="stat-row"><span>Boost</span><strong id="statBoost">33%</strong></div>
+
+    <div class="panel-block">
+      <div class="panel-heading"><span>Telemetry</span></div>
+      <div class="stat-list">
+        <div class="stat-row"><span>Speed</span><strong id="statSpeed">—</strong></div>
+        <div class="stat-row"><span>Accuracy</span><strong id="statAccuracy">—</strong></div>
+        <div class="stat-row"><span>Whiff chance</span><strong id="statWhiff">—</strong></div>
+        <div class="stat-row"><span>Boost</span><strong id="statBoost">33%</strong></div>
+      </div>
+    </div>
   </aside>
 
   <aside class="panel panel-right">
-    <div class="panel-title">MATCH COMMENTARY</div>
+    <div class="panel-heading"><span>Live feed</span><span class="live-dot" aria-hidden="true"></span></div>
     <div class="commentary" id="commentary">
-      <div class="comment-line">Welcome to the arena. The rookie is already struggling with the kickoff…</div>
+      <div class="comment-line">Welcome to the arena. Kickoff is moments away.</div>
     </div>
   </aside>
 
+  <div class="boost-hud" aria-label="Boost">
+    <div class="boost-hud-top"><span>Boost</span><strong id="boostValue">33%</strong></div>
+    <div class="boost-hud-track"><span id="boostFill"></span></div>
+  </div>
+
   <div class="hud-bottom">
-    <button class="control-btn" id="playBtn">⏸ PAUSE</button>
-    <button class="control-btn" id="replayBtn">↻ RESTART MATCH</button>
-    <button class="control-btn" id="speedBtn">⏩ SPEED 1×</button>
-    <div class="hint">SPACE pause · C camera · R restart · +/- speed</div>
+    <div class="controls">
+      <button class="control-btn" id="playBtn">Pause</button>
+      <button class="control-btn" id="replayBtn">Restart</button>
+      <button class="control-btn" id="cameraBtn">Camera · Broadcast</button>
+      <button class="control-btn" id="speedBtn">Speed 1×</button>
+    </div>
+    <div class="hint"><kbd>Space</kbd> pause <kbd>C</kbd> camera <kbd>R</kbd> restart <kbd>+</kbd><kbd>−</kbd> speed</div>
   </div>
 
   <script type="module" src="match3d.js"></script>

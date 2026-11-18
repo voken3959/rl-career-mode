@@ -3,34 +3,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0c10" />
   <meta name="description" content="Rocket League Career Mode — start in Bronze and fight your way to the RLCS pro league." />
   <title>Rocket League Career Mode</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
-  <div class="ambient ambient-one"></div>
-  <div class="ambient ambient-two"></div>
-  <div class="grid-bg"></div>
-
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">RL</div>
       <div class="brand-copy">
-        <div class="brand-title">CAREER MODE</div>
-        <div class="brand-sub">BRONZE → PRO</div>
+        <div class="brand-title">Career Mode</div>
+        <div class="brand-sub">Bronze to Pro</div>
       </div>
     </div>
     <div class="header-stats" id="headerStats"></div>
-    <button class="icon-btn" data-action="settings" title="Settings" aria-label="Settings">⚙</button>
+    <button class="icon-btn" data-action="settings" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+        <circle cx="15" cy="7" r="2" />
+        <circle cx="9" cy="17" r="2" />
+      </svg>
+    </button>
   </header>
 
   <nav class="tabs" id="tabs" aria-label="Main navigation">
-    <button class="tab active" data-tab="dashboard">🏠 Dashboard</button>
-    <button class="tab" data-tab="training">🏋️ Training</button>
-    <button class="tab" data-tab="matches">🎮 Matches</button>
-    <button class="tab" data-tab="clubs">🛡️ Clubs</button>
-    <button class="tab" data-tab="leaderboard">📊 Leaderboard</button>
-    <button class="tab" data-tab="achievements">🏆 Achievements</button>
+    <button class="tab active" data-tab="dashboard"><span>01</span> Dashboard</button>
+    <button class="tab" data-tab="training"><span>02</span> Training</button>
+    <button class="tab" data-tab="matches"><span>03</span> Matches</button>
+    <button class="tab" data-tab="clubs"><span>04</span> Clubs</button>
+    <button class="tab" data-tab="leaderboard"><span>05</span> Leaderboard</button>
+    <button class="tab" data-tab="achievements"><span>06</span> Achievements</button>
   </nav>
 
   <main id="app" class="app"></main>

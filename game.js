@@ -697,19 +697,18 @@ function showMatchModal(match) {
 function renderHeader() {
   const rank = rankInfo(state.mmr);
   const chips = [
-    { icon: '◆', label: 'Rank', value: rank.name, color: rank.color },
-    { icon: '📊', label: 'MMR', value: formatNum(state.mmr) },
-    { icon: '⭐', label: 'Level', value: String(state.level) },
-    { icon: '💰', label: 'Credits', value: formatNum(state.credits) },
-    { icon: '⚡', label: 'Energy', value: state.energy + '/100' },
-    { icon: '🛡️', label: 'Club', value: state.team }
+    { label: 'Rank', value: rank.name, color: rank.color },
+    { label: 'MMR', value: formatNum(state.mmr) },
+    { label: 'Level', value: String(state.level) },
+    { label: 'Credits', value: formatNum(state.credits) },
+    { label: 'Energy', value: state.energy + '/100' },
+    { label: 'Club', value: state.team }
   ];
 
   $('#headerStats').innerHTML = chips.map(chip =>
     '<div class="hstat">' +
-      '<span class="hstat-icon"' + (chip.color ? ' style="color:' + chip.color + '"' : '') + '>' + chip.icon + '</span>' +
-      '<div><div class="hstat-label">' + esc(chip.label) + '</div>' +
-      '<div class="hstat-value">' + esc(chip.value) + '</div></div>' +
+      '<div class="hstat-label">' + esc(chip.label) + '</div>' +
+      '<div class="hstat-value"' + (chip.color ? ' style="color:' + chip.color + '"' : '') + '>' + esc(chip.value) + '</div>' +
     '</div>'
   ).join('');
 
@@ -767,7 +766,7 @@ function renderDashboard() {
     : '<div class="empty">No active contract.</div>';
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">CAREER DASHBOARD</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Career dashboard</h1>' +
     '<div class="page-sub">Season ' + state.season + ' · Week ' + state.week + ' of 40 · ' + esc(state.name) + ' · ' + esc((ROLES[state.role] || ROLES.allrounder).name) + '</div></div>' +
     '<div class="card-note">Overall rating <strong style="color:var(--cyan);font-size:18px">' + overall(state) + '</strong></div></div>' +
 
@@ -794,10 +793,10 @@ function renderDashboard() {
     '</div>' +
 
     '<div class="quick-actions">' +
-      '<button class="quick" data-action="train" data-id="freeplay"><div class="quick-icon">🏟️</div><div class="quick-name">Free Play</div><div class="quick-desc">Quick general practice</div></button>' +
-      '<button class="quick" data-action="play" data-id="duel"><div class="quick-icon">⚔️</div><div class="quick-name">1v1 Duel</div><div class="quick-desc">Prove yourself solo</div></button>' +
-      '<button class="quick" data-action="play" data-id="standard"><div class="quick-icon">🦓</div><div class="quick-name">3v3 Standard</div><div class="quick-desc">Full team match</div></button>' +
-      '<button class="quick" data-action="play" data-id="tournament"><div class="quick-icon">🏆</div><div class="quick-name">Tournament</div><div class="quick-desc">High-risk, high-reward</div></button>' +
+      '<button class="quick" data-action="train" data-id="freeplay"><div class="quick-name">Free Play</div><div class="quick-desc">Quick general practice</div></button>' +
+      '<button class="quick" data-action="play" data-id="duel"><div class="quick-name">1v1 Duel</div><div class="quick-desc">Prove yourself solo</div></button>' +
+      '<button class="quick" data-action="play" data-id="standard"><div class="quick-name">3v3 Standard</div><div class="quick-desc">Full team match</div></button>' +
+      '<button class="quick" data-action="play" data-id="tournament"><div class="quick-name">Tournament</div><div class="quick-desc">High-risk, high-reward</div></button>' +
     '</div>' +
 
     '<div class="two-col">' +
@@ -818,7 +817,7 @@ function renderTraining() {
   const attrsHtml = ATTRS.map(attr => {
     const value = state.attributes[attr.key];
     return '<div class="attr-card">' +
-      '<div class="attr-top"><span class="attr-icon">' + attr.icon + '</span>' +
+      '<div class="attr-top">' +
       '<span class="attr-name">' + esc(attr.label) + '</span>' +
       '<span class="attr-value">' + value + '</span></div>' +
       '<div class="attr-desc">' + esc(attr.desc) + '</div>' +
@@ -832,7 +831,6 @@ function renderTraining() {
     const locked = state.level < drill.level;
     const tired = state.energy < drill.energy;
     return '<div class="drill-card">' +
-      '<div class="card-icon">' + drill.icon + '</div>' +
       '<div class="card-title-lg">' + esc(drill.name) + '</div>' +
       '<div class="card-desc">' + esc(drill.desc) + '</div>' +
       '<div class="card-meta">' +
@@ -842,25 +840,25 @@ function renderTraining() {
         (locked ? '<span class="tag red">Level ' + drill.level + '</span>' : '') +
       '</div>' +
       '<button class="btn btn-primary btn-block" data-action="train" data-id="' + drill.id + '"' + (locked || tired ? ' disabled' : '') + '>' +
-      (locked ? 'LOCKED' : (tired ? 'TOO TIRED' : 'START DRILL')) + '</button>' +
+      (locked ? 'LOCKED' : (tired ? 'REST REQUIRED' : 'START DRILL')) + '</button>' +
     '</div>';
   }).join('');
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">TRAINING GROUND</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Training ground</h1>' +
     '<div class="page-sub">Build your mechanics. Training advances the week by 1.</div></div>' +
     '<div class="card-note">Energy <strong style="color:var(--orange);font-size:18px">' + state.energy + '/100</strong></div></div>' +
 
     (state.skillPoints > 0
-      ? '<div class="notice"><span style="font-size:20px">⭐</span><div><strong>' + state.skillPoints + ' skill point' + (state.skillPoints === 1 ? '' : 's') + ' available!</strong>' +
-        '<div style="color:var(--muted)">Spend them below for an instant +3 to any attribute.</div></div></div>'
+      ? '<div class="notice"><div><strong>' + state.skillPoints + ' skill point' + (state.skillPoints === 1 ? '' : 's') + ' available</strong>' +
+        '<div class="notice-sub">Spend them below for an instant +3 to any attribute.</div></div></div>'
       : '') +
 
     '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">PLAYER ATTRIBUTES</div>' +
     '<div class="card-note">Overall ' + overall(state) + '</div></div>' +
     '<div class="card-pad three-col" style="padding:14px">' + attrsHtml + '</div></div>' +
 
-    '<div class="page-head" style="margin-top:22px"><div><h1 class="page-title" style="font-size:24px">DRILLS</h1>' +
+    '<div class="page-head" style="margin-top:22px"><div><h1 class="page-title" style="font-size:24px">Drills</h1>' +
     '<div class="page-sub">Consistent practice is how Bronze players become pros.</div></div></div>' +
     '<div class="three-col">' + drillsHtml + '</div>';
 }
@@ -869,7 +867,6 @@ function renderMatches() {
   const cards = PLAYLISTS.map(playlist => {
     const tired = state.energy < playlist.energy;
     return '<div class="playlist-card">' +
-      '<div class="card-icon">' + playlist.icon + '</div>' +
       '<div class="card-title-lg">' + esc(playlist.name) + '</div>' +
       '<div class="card-desc">' + esc(playlist.desc) + '</div>' +
       '<div class="card-meta">' +
@@ -878,7 +875,7 @@ function renderMatches() {
         (playlist.tournament ? '<span class="tag gold">1.35× rewards</span>' : '') +
       '</div>' +
       '<button class="btn ' + (playlist.tournament ? 'btn-orange' : 'btn-primary') + ' btn-block" data-action="play" data-id="' + playlist.id + '"' + (tired ? ' disabled' : '') + '>' +
-      (tired ? 'TOO TIRED' : 'QUEUE UP') + '</button>' +
+      (tired ? 'REST REQUIRED' : 'QUEUE UP') + '</button>' +
     '</div>';
   }).join('');
 
@@ -893,14 +890,16 @@ function renderMatches() {
     : '<div class="empty">Your match history will appear here.</div>';
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">MATCHMAKING</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Matchmaking</h1>' +
     '<div class="page-sub">Every result moves your MMR. Win to climb, lose to slide.</div></div>' +
     '<div class="card-note">Win rate: ' + (state.wins + state.losses ? Math.round(state.wins / (state.wins + state.losses) * 100) : 0) + '%</div></div>' +
-    '<div class="notice" style="border-color:rgba(0,212,255,0.35);background:rgba(0,212,255,0.06);color:var(--cyan);margin-bottom:18px">' +
-      '<span style="font-size:24px">🎥</span>' +
-      '<div style="flex:1"><strong>3D MATCH VIEWER</strong>' +
-      '<div style="color:var(--muted)">Watch a fully simulated 3D match at your current skill level — Bronze rookies whiff, pros don\'t.</div></div>' +
-      '<button class="btn btn-primary" data-action="watch3d">WATCH IN 3D →</button>' +
+    '<div class="viewer-card">' +
+      '<div class="viewer-copy">' +
+        '<div class="viewer-kicker">Match center</div>' +
+        '<div class="viewer-title">Watch in 3D</div>' +
+        '<div class="viewer-desc">A fully simulated match at your current skill level. Bronze rookies whiff; pros don\'t.</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" data-action="watch3d">OPEN VIEWER</button>' +
     '</div>' +
     '<div class="three-col">' + cards + '</div>' +
     '<div class="card" style="margin-top:18px"><div class="card-head"><div class="card-title">MATCH HISTORY</div>' +
@@ -932,13 +931,13 @@ function renderClubs() {
   const currentClub = CLUBS.find(c => c.name === state.team);
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">CLUBS & CONTRACTS</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Clubs &amp; contracts</h1>' +
     '<div class="page-sub">Signing with a club boosts your team power and pays a weekly salary.</div></div>' +
     '<div class="card-note">Current MMR <strong style="color:var(--cyan);font-size:18px">' + formatNum(state.mmr) + '</strong></div></div>' +
     (currentClub && currentClub.name !== 'Free Agent'
-      ? '<div class="notice" style="border-color:' + currentClub.color + '55;background:' + currentClub.color + '12;color:' + currentClub.color + '">' +
-        '<span style="font-size:20px">🛡️</span><div><strong>Playing for ' + esc(currentClub.name) + '</strong>' +
-        '<div style="color:var(--muted)">Chemistry ' + state.chemistry + '% · Weekly salary ' + currentClub.salary + ' credits · Roster rating ' + currentClub.roster + '</div></div></div>'
+      ? '<div class="notice club-notice" style="--notice-accent:' + currentClub.color + '">' +
+        '<div><strong>Playing for ' + esc(currentClub.name) + '</strong>' +
+        '<div class="notice-sub">Chemistry ' + state.chemistry + '% · Weekly salary ' + currentClub.salary + ' credits · Roster rating ' + currentClub.roster + '</div></div></div>'
       : '') +
     '<div class="three-col">' + cards + '</div>';
 }
@@ -949,7 +948,7 @@ function renderLeaderboard() {
 
   const tableRows = rows.map((row, index) =>
     '<tr class="' + (row.you ? 'you' : '') + '">' +
-      '<td class="pos">' + (index + 1) + (index < 3 ? [' 🥇', ' 🥈', ' 🥉'][index] : '') + '</td>' +
+      '<td class="pos">' + (index + 1) + '</td>' +
       '<td>' + esc(row.name) + (row.you ? ' <span class="tag cyan">YOU</span>' : '') + '</td>' +
       '<td><div class="rank-cell"><span class="rank-chip" style="background:' + rankColor(row.mmr) + '"></span>' + esc(rankInfo(row.mmr).name) + '</div></td>' +
       '<td class="num">' + formatNum(row.mmr) + '</td>' +
@@ -957,7 +956,7 @@ function renderLeaderboard() {
   ).join('');
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">GLOBAL LEADERBOARD</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Global leaderboard</h1>' +
     '<div class="page-sub">Simulated ladder around your current MMR.</div></div>' +
     '<div class="card-note">Your position: <strong style="color:var(--cyan);font-size:18px">#' + yourPosition + '</strong> of ' + rows.length + '</div></div>' +
     '<div class="card"><div class="table-wrap"><table><thead><tr>' +
@@ -969,15 +968,14 @@ function renderAchievements() {
   const cards = ACHIEVEMENTS.map(achievement => {
     const unlocked = state.achievements.includes(achievement.id);
     return '<div class="ach-card' + (unlocked ? ' unlocked' : '') + '">' +
-      '<div class="ach-icon">' + achievement.icon + '</div>' +
       '<div><div class="ach-name">' + esc(achievement.name) + '</div>' +
       '<div class="ach-desc">' + esc(achievement.desc) + '</div>' +
-      '<div class="ach-status">' + (unlocked ? '✓ Unlocked' : 'Locked') + '</div></div>' +
+      '<div class="ach-status">' + (unlocked ? 'Unlocked' : 'Locked') + '</div></div>' +
     '</div>';
   }).join('');
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">ACHIEVEMENTS</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Achievements</h1>' +
     '<div class="page-sub">Milestones from your road to the pros.</div></div>' +
     '<div class="card-note"><strong style="color:var(--gold);font-size:18px">' + state.achievements.length + ' / ' + ACHIEVEMENTS.length + '</strong> unlocked</div></div>' +
     '<div class="three-col">' + cards + '</div>';
@@ -989,7 +987,7 @@ function renderSettings() {
   ).join('');
 
   $('#app').innerHTML =
-    '<div class="page-head"><div><h1 class="page-title">SETTINGS</h1>' +
+    '<div class="page-head"><div><h1 class="page-title">Settings</h1>' +
     '<div class="page-sub">Manage your profile and save data.</div></div></div>' +
     '<div class="settings-grid">' +
       '<div class="card card-pad">' +

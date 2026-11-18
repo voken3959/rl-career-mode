@@ -38,7 +38,7 @@ A season lasts 40 weeks. When it ends, the season counter increments and your ca
 ## Tech
 
 - `index.html` — page structure
-- `styles.css` — dark neon UI, responsive layout
+- `styles.css` — minimal dark UI, responsive layout
 - `game.js` — all game state, simulation and rendering logic
 - `match3d.html` / `match3d.js` / `match3d.css` — the 3D match viewer (Three.js)
 - `vendor/three.module.js` — vendored Three.js so the 3D viewer works offline

@@ -67,9 +67,12 @@ const dom = {
   statAccuracy: document.getElementById('statAccuracy'),
   statWhiff: document.getElementById('statWhiff'),
   statBoost: document.getElementById('statBoost'),
+  boostValue: document.getElementById('boostValue'),
+  boostFill: document.getElementById('boostFill'),
   commentary: document.getElementById('commentary'),
   playBtn: document.getElementById('playBtn'),
   replayBtn: document.getElementById('replayBtn'),
+  cameraBtn: document.getElementById('cameraBtn'),
   speedBtn: document.getElementById('speedBtn'),
   backBtn: document.getElementById('backBtn')
 };
@@ -1390,7 +1393,10 @@ function updateUI() {
   dom.scoreOrange.textContent = scoreOrange;
   dom.clock.textContent = formatClock(clock);
   dom.matchState.textContent = matchState;
-  dom.statBoost.textContent = Math.round(cars[0].boost) + '%';
+  const boost = clamp(cars[0].boost, 0, 100);
+  if (dom.statBoost) dom.statBoost.textContent = Math.round(boost) + '%';
+  if (dom.boostValue) dom.boostValue.textContent = Math.round(boost) + '%';
+  if (dom.boostFill) dom.boostFill.style.width = boost + '%';
 }
 
 function applySkillUI() {
@@ -1411,6 +1417,13 @@ function setCameraMode(mode) {
   document.querySelectorAll('.cam-btn').forEach(button => {
     button.classList.toggle('active', button.dataset.cam === mode);
   });
+  const label = mode.charAt(0).toUpperCase() + mode.slice(1);
+  if (dom.cameraBtn) dom.cameraBtn.textContent = 'Camera · ' + label;
+}
+
+function cycleCameraMode() {
+  const modes = ['broadcast', 'chase', 'ball', 'orbit', 'top'];
+  setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
 }
 
 dom.skillSelect.addEventListener('change', () => {
@@ -1428,9 +1441,11 @@ document.querySelectorAll('.cam-btn').forEach(button => {
   button.addEventListener('click', () => setCameraMode(button.dataset.cam));
 });
 
+if (dom.cameraBtn) dom.cameraBtn.addEventListener('click', cycleCameraMode);
+
 dom.playBtn.addEventListener('click', () => {
   paused = !paused;
-  dom.playBtn.textContent = paused ? '▶ PLAY' : '⏸ PAUSE';
+  dom.playBtn.textContent = paused ? 'Resume' : 'Pause';
 });
 
 dom.replayBtn.addEventListener('click', () => {
@@ -1442,7 +1457,7 @@ dom.replayBtn.addEventListener('click', () => {
 
 dom.speedBtn.addEventListener('click', () => {
   speedMultiplier = speedMultiplier === 1 ? 2 : (speedMultiplier === 2 ? 4 : 1);
-  dom.speedBtn.textContent = '⏩ SPEED ' + speedMultiplier + '×';
+  dom.speedBtn.textContent = 'Speed ' + speedMultiplier + '×';
 });
 
 dom.backBtn.addEventListener('click', () => {
@@ -1454,16 +1469,15 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     dom.playBtn.click();
   } else if (event.key.toLowerCase() === 'c') {
-    const modes = ['broadcast', 'chase', 'ball', 'orbit', 'top'];
-    setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
+    cycleCameraMode();
   } else if (event.key.toLowerCase() === 'r') {
     dom.replayBtn.click();
   } else if (event.key === '+' || event.key === '=') {
     speedMultiplier = Math.min(4, speedMultiplier * 2);
-    dom.speedBtn.textContent = '⏩ SPEED ' + speedMultiplier + '×';
+    dom.speedBtn.textContent = 'Speed ' + speedMultiplier + '×';
   } else if (event.key === '-') {
     speedMultiplier = Math.max(1, speedMultiplier / 2);
-    dom.speedBtn.textContent = '⏩ SPEED ' + speedMultiplier + '×';
+    dom.speedBtn.textContent = 'Speed ' + speedMultiplier + '×';
   }
 });
 
@@ -1579,5 +1593,7 @@ window.__rl3d = {
 };
 
 applySkillUI();
-resetPositions('Kickoff! The Bronze rookie looks completely lost already.');
+resetPositions(skillKey === 'bronze'
+  ? 'Kickoff! The Bronze rookie looks completely lost already.'
+  : 'Kickoff at ' + skill.label + ' level. Play is under way.');
 requestAnimationFrame(animate);
