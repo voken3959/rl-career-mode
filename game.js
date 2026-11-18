@@ -172,6 +172,18 @@ function rankColor(mmr) {
   return rankInfo(mmr).color;
 }
 
+function careerTier(mmr) {
+  if (mmr < 360) return 'bronze';
+  if (mmr < 720) return 'silver';
+  if (mmr < 1080) return 'gold';
+  if (mmr < 1440) return 'platinum';
+  if (mmr < 1800) return 'diamond';
+  if (mmr < 2160) return 'champion';
+  if (mmr < 2520) return 'grandchampion';
+  if (mmr < 2760) return 'ssl';
+  return 'pro';
+}
+
 function xpNeeded(level) {
   return 100 + level * 60;
 }
@@ -884,6 +896,12 @@ function renderMatches() {
     '<div class="page-head"><div><h1 class="page-title">MATCHMAKING</h1>' +
     '<div class="page-sub">Every result moves your MMR. Win to climb, lose to slide.</div></div>' +
     '<div class="card-note">Win rate: ' + (state.wins + state.losses ? Math.round(state.wins / (state.wins + state.losses) * 100) : 0) + '%</div></div>' +
+    '<div class="notice" style="border-color:rgba(0,212,255,0.35);background:rgba(0,212,255,0.06);color:var(--cyan);margin-bottom:18px">' +
+      '<span style="font-size:24px">🎥</span>' +
+      '<div style="flex:1"><strong>3D MATCH VIEWER</strong>' +
+      '<div style="color:var(--muted)">Watch a fully simulated 3D match at your current skill level — Bronze rookies whiff, pros don\'t.</div></div>' +
+      '<button class="btn btn-primary" data-action="watch3d">WATCH IN 3D →</button>' +
+    '</div>' +
     '<div class="three-col">' + cards + '</div>' +
     '<div class="card" style="margin-top:18px"><div class="card-head"><div class="card-title">MATCH HISTORY</div>' +
     '<div class="card-note">Last 10 results</div></div>' + historyHtml + '</div>';
@@ -1018,6 +1036,7 @@ function handleAction(action, element) {
     case 'play': simulateMatch(element.dataset.id); break;
     case 'join': joinClub(element.dataset.team); break;
     case 'claim': claimContract(); break;
+    case 'watch3d': window.location.href = 'match3d.html?tier=' + careerTier(state.mmr); break;
     case 'saveSettings': {
       const nameInput = $('#setName');
       const roleInput = $('#setRole');

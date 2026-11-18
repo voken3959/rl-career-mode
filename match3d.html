@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RL Career Mode — 3D Match Viewer</title>
+  <link rel="stylesheet" href="match3d.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <div id="loading" class="loading">
+    <div class="loading-mark">RL</div>
+    <div class="loading-title">BUILDING THE ARENA</div>
+    <div class="loading-sub">Loading stadium geometry, crowd and lighting…</div>
+  </div>
+
+  <header class="hud-top">
+    <div class="hud-brand">
+      <div class="hud-mark">RL</div>
+      <div>
+        <div class="hud-brand-title">CAREER MODE</div>
+        <div class="hud-brand-sub">3D MATCH VIEWER</div>
+      </div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="team blue"><span class="team-name">BLUE</span><span class="score" id="scoreBlue">0</span></div>
+      <div class="clock-box">
+        <div class="clock" id="clock">3:00</div>
+        <div class="clock-label" id="matchState">KICKOFF</div>
+      </div>
+      <div class="team orange"><span class="score" id="scoreOrange">0</span><span class="team-name">ORANGE</span></div>
+    </div>
+
+    <div class="hud-right">
+      <div class="rank-chip" id="rankChip">BRONZE</div>
+      <button class="icon-btn" id="backBtn" title="Back to career">✕</button>
+    </div>
+  </header>
+
+  <aside class="panel panel-left">
+    <div class="panel-title">BROADCAST</div>
+    <div class="cam-grid">
+      <button class="cam-btn active" data-cam="broadcast">1 · Broadcast</button>
+      <button class="cam-btn" data-cam="chase">2 · Chase</button>
+      <button class="cam-btn" data-cam="ball">3 · Ball</button>
+      <button class="cam-btn" data-cam="orbit">4 · Orbit</button>
+      <button class="cam-btn" data-cam="top">5 · Top</button>
+    </div>
+    <div class="panel-divider"></div>
+    <div class="panel-title">SKILL LEVEL</div>
+    <select id="skillSelect" class="select">
+      <option value="bronze" selected>Bronze — rookie mistakes</option>
+      <option value="silver">Silver</option>
+      <option value="gold">Gold</option>
+      <option value="platinum">Platinum</option>
+      <option value="diamond">Diamond</option>
+      <option value="champion">Champion</option>
+      <option value="grandchampion">Grand Champion</option>
+      <option value="ssl">Supersonic Legend</option>
+      <option value="pro">Pro League</option>
+    </select>
+    <div class="skill-meter">
+      <div class="skill-meter-fill" id="skillFill"></div>
+    </div>
+    <div class="skill-label" id="skillDesc">Low speed, poor accuracy, frequent whiffs.</div>
+    <div class="panel-divider"></div>
+    <div class="stat-row"><span>Speed</span><strong id="statSpeed">—</strong></div>
+    <div class="stat-row"><span>Accuracy</span><strong id="statAccuracy">—</strong></div>
+    <div class="stat-row"><span>Whiff chance</span><strong id="statWhiff">—</strong></div>
+  </aside>
+
+  <aside class="panel panel-right">
+    <div class="panel-title">MATCH COMMENTARY</div>
+    <div class="commentary" id="commentary">
+      <div class="comment-line">Welcome to the arena. The rookie is already struggling with the kickoff…</div>
+    </div>
+  </aside>
+
+  <div class="hud-bottom">
+    <button class="control-btn" id="playBtn">⏸ PAUSE</button>
+    <button class="control-btn" id="replayBtn">↻ RESTART MATCH</button>
+    <button class="control-btn" id="speedBtn">⏩ SPEED 1×</button>
+    <div class="hint">SPACE pause · C camera · R restart · +/- speed</div>
+  </div>
+
+  <script type="module" src="match3d.js"></script>
+</body>
+</html>
