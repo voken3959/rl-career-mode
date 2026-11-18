@@ -751,7 +751,8 @@ function updateCar(car, dt) {
 
   let difference = 0;
   if (distance > 0.1) {
-    const desiredHeading = Math.atan2(toTarget.x, toTarget.z);
+    // The car mesh points along its local +X axis, so world forward is (cos h, -sin h).
+    const desiredHeading = Math.atan2(-toTarget.z, toTarget.x);
     difference = angleDelta(car.heading, desiredHeading);
     const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92) * (1 - Math.min(0.42, (car.speed / Math.max(1, skill.speed * 1.45)) * 0.38));
     const steerInput = clamp(difference / 0.42, -1, 1);
@@ -765,7 +766,7 @@ function updateCar(car, dt) {
   const baseSpeed = skill.speed * (car.isPlayer ? 1 : 0.96);
   const maxSpeed = baseSpeed * (boosting ? 1.45 : 1);
 
-  const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
+  const forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
 
   // Cars only ever drive along their own forward axis — no sideways movement.
   // Slow down while turning so the steering circle actually converges on the target.
@@ -942,7 +943,7 @@ function updateCamera(dt) {
     desiredCamera.set(0, 80, 112);
     lookTarget.set(0, 0, 0);
   } else if (cameraMode === 'chase') {
-    const forward = new THREE.Vector3(Math.sin(player.heading), 0, Math.cos(player.heading));
+    const forward = new THREE.Vector3(Math.cos(player.heading), 0, -Math.sin(player.heading));
     desiredCamera.copy(player.pos).addScaledVector(forward, -17).add(new THREE.Vector3(0, 9, 0));
     lookTarget.copy(player.pos).addScaledVector(forward, 14).add(new THREE.Vector3(0, 2, 0));
   } else if (cameraMode === 'ball') {
