@@ -38,7 +38,17 @@ if (!SKILLS[skillKey]) skillKey = 'bronze';
 
 let skill = SKILLS[skillKey];
 
-const FIELD = { length: 100, width: 66, goalHalf: 8, goalHeight: 8, ballRadius: 1.7 };
+const FIELD = { length: 120, width: 80, goalHalf: 8, goalHeight: 8, ballRadius: 1.7, cornerRadius: 9 };
+
+const HALF_L = FIELD.length / 2;
+const HALF_W = FIELD.width / 2;
+const CORNER_R = FIELD.cornerRadius;
+const CAR_LIMIT_X = HALF_L - 1.5;
+const CAR_LIMIT_Z = HALF_W - 1.5;
+const BALL_LIMIT_X = HALF_L - 0.8;
+const BALL_LIMIT_Z = HALF_W - 0.8;
+const TARGET_LIMIT_X = HALF_L - 3;
+const TARGET_LIMIT_Z = HALF_W - 4;
 
 /* ============================== DOM ============================== */
 
@@ -92,10 +102,10 @@ function formatClock(seconds) {
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x070a12);
-scene.fog = new THREE.FogExp2(0x0b0d17, 0.0017);
+scene.fog = new THREE.FogExp2(0x0b0d17, 0.0014);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 1600);
-camera.position.set(0, 78, 108);
+camera.position.set(0, 95, 135);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -113,20 +123,20 @@ dom.container.appendChild(renderer.domElement);
 scene.add(new THREE.HemisphereLight(0xa9c8ff, 0x2a1108, 0.55));
 
 const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.0);
-keyLight.position.set(55, 130, 45);
+keyLight.position.set(65, 150, 55);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
-keyLight.shadow.camera.left = -90;
-keyLight.shadow.camera.right = 90;
-keyLight.shadow.camera.top = 70;
-keyLight.shadow.camera.bottom = -70;
+keyLight.shadow.camera.left = -120;
+keyLight.shadow.camera.right = 120;
+keyLight.shadow.camera.top = 95;
+keyLight.shadow.camera.bottom = -95;
 keyLight.shadow.camera.near = 10;
-keyLight.shadow.camera.far = 320;
+keyLight.shadow.camera.far = 380;
 keyLight.shadow.bias = -0.0005;
 scene.add(keyLight);
 
 const fillLight = new THREE.DirectionalLight(0x4f8dff, 0.65);
-fillLight.position.set(-70, 60, -50);
+fillLight.position.set(-85, 70, -60);
 scene.add(fillLight);
 
 /* ============================== SKY ============================== */
@@ -228,22 +238,27 @@ function addWallBox(w, h, d, x, y, z) {
   return mesh;
 }
 
-addWallBox(100, 7, 1.2, 0, 3.5, -33);
-addWallBox(100, 7, 1.2, 0, 3.5, 33);
-addWallBox(1.2, 7, 25, -50, 3.5, -20.5);
-addWallBox(1.2, 7, 25, -50, 3.5, 20.5);
-addWallBox(1.2, 7, 25, 50, 3.5, -20.5);
-addWallBox(1.2, 7, 25, 50, 3.5, 20.5);
+const sideWallLength = FIELD.length - CORNER_R * 2;
+const endWallDepth = HALF_W - CORNER_R - FIELD.goalHalf;
+const endWallZ = FIELD.goalHalf + endWallDepth / 2;
+const cornerX = HALF_L - CORNER_R;
+const cornerZ = HALF_W - CORNER_R;
+
+addWallBox(sideWallLength, 7, 1.2, 0, 3.5, -HALF_W);
+addWallBox(sideWallLength, 7, 1.2, 0, 3.5, HALF_W);
+[-HALF_L, HALF_L].forEach(x => {
+  [-endWallZ, endWallZ].forEach(z => addWallBox(1.2, 7, endWallDepth, x, 3.5, z));
+});
 
 const cornerConfigs = [
-  { x: 42, z: 25, start: 0 },
-  { x: -42, z: 25, start: Math.PI / 2 },
-  { x: -42, z: -25, start: Math.PI },
-  { x: 42, z: -25, start: Math.PI * 1.5 }
+  { x: cornerX, z: cornerZ, start: 0 },
+  { x: -cornerX, z: cornerZ, start: Math.PI / 2 },
+  { x: -cornerX, z: -cornerZ, start: Math.PI },
+  { x: cornerX, z: -cornerZ, start: Math.PI * 1.5 }
 ];
 cornerConfigs.forEach(corner => {
   const mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(8, 8, 7, 20, 1, true, corner.start, Math.PI / 2),
+    new THREE.CylinderGeometry(CORNER_R, CORNER_R, 7, 24, 1, true, corner.start, Math.PI / 2),
     wallMaterial
   );
   mesh.position.set(corner.x, 3.5, corner.z);
@@ -251,14 +266,14 @@ cornerConfigs.forEach(corner => {
   scene.add(mesh);
 });
 
-[-33.2, 33.2].forEach(z => {
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(100, 0.35, 0.4), trimBlue);
+[-HALF_W - 0.2, HALF_W + 0.2].forEach(z => {
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(sideWallLength, 0.35, 0.4), trimBlue);
   trim.position.set(0, 7.1, z);
   scene.add(trim);
 });
-[-50.2, 50.2].forEach(x => {
-  [-20.5, 20.5].forEach(z => {
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 25), trimBlue);
+[-HALF_L - 0.2, HALF_L + 0.2].forEach(x => {
+  [-endWallZ, endWallZ].forEach(z => {
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, endWallDepth), trimBlue);
     trim.position.set(x, 7.1, z);
     scene.add(trim);
   });
@@ -318,7 +333,7 @@ function createGoal(side) {
   glow.position.set(side * 5.6, FIELD.goalHeight / 2, 0);
   group.add(glow);
 
-  group.position.x = side * 50;
+  group.position.x = side * HALF_L;
   scene.add(group);
 }
 
@@ -331,16 +346,30 @@ const BOOST_MAX = 100;
 const SMALL_BOOST_AMOUNT = 12;
 const BIG_BOOST_AMOUNT = 100;
 
-const padPositions = [
-  [-42, -25], [-42, 25], [42, -25], [42, 25],
-  [-42, 0], [42, 0], [0, -27], [0, 27],
-  [-20, -27], [-20, 27], [20, -27], [20, 27],
-  [-30, -15], [-30, 15], [30, -15], [30, 15],
-  [-10, -15], [-10, 15], [10, -15], [10, 15],
-  [0, -10], [0, 10], [-35, -8], [-35, 8], [35, -8], [35, 8]
+const bigPadPositions = [
+  [-cornerX, -cornerZ], [-cornerX, cornerZ], [cornerX, -cornerZ], [cornerX, cornerZ],
+  [0, -(HALF_W - 6)], [0, HALF_W - 6]
 ];
 
-const bigPadKeys = new Set(['-42,-25', '-42,25', '42,-25', '42,25', '0,-27', '0,27']);
+// Seven small pads per quadrant, mirrored for balanced coverage: 28 small total.
+const smallQuadrantPads = [
+  [HALF_L - 6, 12],
+  [HALF_L - 10, 24],
+  [HALF_L - 18, 16],
+  [HALF_L - 24, 32],
+  [HALF_L - 34, 12],
+  [HALF_L - 42, 30],
+  [HALF_L - 50, 18]
+];
+const smallPadPositions = [];
+for (const xSign of [-1, 1]) {
+  for (const zSign of [-1, 1]) {
+    for (const [x, z] of smallQuadrantPads) smallPadPositions.push([xSign * x, zSign * z]);
+  }
+}
+
+const padPositions = [...bigPadPositions, ...smallPadPositions];
+const bigPadKeys = new Set(bigPadPositions.map(([x, z]) => x + ',' + z));
 
 const pads = padPositions.map(([x, z]) => {
   const big = bigPadKeys.has(x + ',' + z);
@@ -430,10 +459,12 @@ function perimeterPoint(t, width, height, radius) {
   return { x: -straightW / 2 + radius * Math.cos(angle), z: -straightH / 2 + radius * Math.sin(angle), nx: Math.cos(angle), nz: Math.sin(angle) };
 }
 
+const STAND_W = FIELD.length + 20;
+const STAND_H = FIELD.width + 16;
 const standMaterial = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.95, metalness: 0.05 });
 for (let row = 0; row < 8; row++) {
-  const width = 108 + row * 4.6;
-  const height = 74 + row * 4.6;
+  const width = STAND_W + row * 4.6;
+  const height = STAND_H + row * 4.6;
   const radius = 11 + row * 1.2;
   const y = 7.5 + row * 2.1;
 
@@ -453,14 +484,14 @@ for (let row = 0; row < 8; row++) {
 
 const crowdGeometry = new THREE.BoxGeometry(0.9, 1.25, 0.9);
 const crowdMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
-const CROWD_COUNT = 3200;
+const CROWD_COUNT = 4200;
 const crowd = new THREE.InstancedMesh(crowdGeometry, crowdMaterial, CROWD_COUNT);
 const dummy = new THREE.Object3D();
 const crowdPalette = [0xd8552c, 0xff8a3d, 0x8c2f1d, 0xffc46b, 0x27324f, 0x6b2a20, 0xe0a15a];
 for (let i = 0; i < CROWD_COUNT; i++) {
   const row = Math.floor(Math.random() * 8);
-  const width = 108 + row * 4.6;
-  const height = 74 + row * 4.6;
+  const width = STAND_W + row * 4.6;
+  const height = STAND_H + row * 4.6;
   const radius = 11 + row * 1.2;
   const point = perimeterPoint(Math.random(), width, height, radius);
   const outward = rand(0.2, 2.0);
@@ -490,31 +521,34 @@ function beamBetween(a, b, radius, material) {
   scene.add(mesh);
 }
 
+const TOWER_X = HALF_L + 16;
+const TOWER_Z = HALF_W + 14;
+const TOWER_H = 50;
 const towerPositions = [
-  new THREE.Vector3(-64, 0, -46), new THREE.Vector3(64, 0, -46),
-  new THREE.Vector3(-64, 0, 46), new THREE.Vector3(64, 0, 46)
+  new THREE.Vector3(-TOWER_X, 0, -TOWER_Z), new THREE.Vector3(TOWER_X, 0, -TOWER_Z),
+  new THREE.Vector3(-TOWER_X, 0, TOWER_Z), new THREE.Vector3(TOWER_X, 0, TOWER_Z)
 ];
 
 towerPositions.forEach((tower, index) => {
-  const top = new THREE.Vector3(tower.x, 44, tower.z);
+  const top = new THREE.Vector3(tower.x, TOWER_H, tower.z);
   beamBetween(tower, top, 0.9, beamMaterial);
 
   const panel = new THREE.Mesh(
     new THREE.BoxGeometry(11, 3.2, 1.4),
     new THREE.MeshStandardMaterial({ color: 0xfff3d6, emissive: 0xffe0a3, emissiveIntensity: 2.2, roughness: 0.3 })
   );
-  panel.position.copy(top).setY(44.8);
+  panel.position.copy(top).setY(TOWER_H + 0.8);
   panel.lookAt(0, 0, 0);
   scene.add(panel);
 
-  const spot = new THREE.SpotLight(0xffe8c4, 2.6, 280, 0.58, 0.65, 1.4);
+  const spot = new THREE.SpotLight(0xffe8c4, 2.6, 320, 0.58, 0.65, 1.4);
   spot.position.copy(top);
   spot.target.position.set(0, 0, 0);
   scene.add(spot);
   scene.add(spot.target);
 
   if (index % 2 === 0) {
-    const glow = new THREE.PointLight(0xff9b42, 0.7, 90, 2);
+    const glow = new THREE.PointLight(0xff9b42, 0.7, 105, 2);
     glow.position.copy(top);
     scene.add(glow);
   }
@@ -523,13 +557,13 @@ towerPositions.forEach((tower, index) => {
 for (let i = 0; i < towerPositions.length; i++) {
   const next = towerPositions[(i + 1) % towerPositions.length];
   beamBetween(
-    new THREE.Vector3(towerPositions[i].x, 44, towerPositions[i].z),
-    new THREE.Vector3(next.x, 44, next.z),
+    new THREE.Vector3(towerPositions[i].x, TOWER_H, towerPositions[i].z),
+    new THREE.Vector3(next.x, TOWER_H, next.z),
     0.45, beamMaterial
   );
 }
-beamBetween(new THREE.Vector3(-64, 44, 0), new THREE.Vector3(64, 44, 0), 0.35, beamMaterial);
-beamBetween(new THREE.Vector3(0, 44, -46), new THREE.Vector3(0, 44, 46), 0.35, beamMaterial);
+beamBetween(new THREE.Vector3(-TOWER_X, TOWER_H, 0), new THREE.Vector3(TOWER_X, TOWER_H, 0), 0.35, beamMaterial);
+beamBetween(new THREE.Vector3(0, TOWER_H, -TOWER_Z), new THREE.Vector3(0, TOWER_H, TOWER_Z), 0.35, beamMaterial);
 
 /* ============================== BALL ============================== */
 
@@ -703,10 +737,10 @@ let elapsed = 0;
 
 function resetPositions(message) {
   const starts = [
-    { x: -20, z: -10, heading: 0 },
-    { x: -34, z: 12, heading: 0 },
-    { x: 20, z: 10, heading: Math.PI },
-    { x: 34, z: -12, heading: Math.PI }
+    { x: -24, z: -12, heading: 0 },
+    { x: -42, z: 14, heading: 0 },
+    { x: 24, z: 12, heading: Math.PI },
+    { x: 42, z: -14, heading: Math.PI }
   ];
 
   kickoffCount++;
@@ -773,7 +807,7 @@ function scoreGoal(team) {
   goalLocked = true;
   ball.vel.set(0, 0, 0);
   // Settle the ball deep in the net so it stays clear of the frozen cars.
-  ball.pos.x = team === 'blue' ? 54 : -54;
+  ball.pos.x = team === 'blue' ? HALF_L + 4 : -(HALF_L + 4);
   ball.pos.y = FIELD.ballRadius;
   ballMesh.position.copy(ball.pos);
   ballGlow.position.copy(ball.pos);
@@ -800,16 +834,17 @@ function chooseTarget(car) {
     car.targetError.set(rand(-errorRadius, errorRadius), 0, rand(-errorRadius, errorRadius));
   }
 
-  const ownGoalX = car.team === 'blue' ? -50 : 50;
+  const ownGoalX = car.team === 'blue' ? -HALF_L : HALF_L;
   const target = new THREE.Vector3();
 
   if (kickoffPhase > 0 && car.kickoffRole === 'kickoff') {
     target.copy(ball.pos);
   } else if (kickoffPhase > 0) {
     // The non-taker breaks wide instead of swarming the centre spot.
-    target.set(ownGoalX * 0.5, 0, car.index === 1 ? -20 : 20);
+    target.set(ownGoalX * 0.5, 0, car.index === 1 ? -28 : 28);
   } else if (car.role === 'defend') {
-    const nearOwnGoal = car.team === 'blue' ? ball.pos.x < -32 : ball.pos.x > 32;
+    const defensiveLine = HALF_L - 18;
+    const nearOwnGoal = car.team === 'blue' ? ball.pos.x < -defensiveLine : ball.pos.x > defensiveLine;
     const zBias = car.index === 1 ? 9 : car.index === 3 ? -9 : 0;
     target.set(ownGoalX * 0.68 + (ball.pos.x - ownGoalX) * 0.16, 0, ball.pos.z * 0.55 + zBias);
     if (nearOwnGoal && car.pos.distanceTo(ball.pos) < 18) target.copy(ball.pos);
@@ -828,8 +863,8 @@ function chooseTarget(car) {
   target.y = 0;
   const errorScale = car.kickoffRole === 'kickoff' ? 1 : (car.role === 'attack' ? 0.8 : 0.35);
   target.addScaledVector(car.targetError, errorScale);
-  target.x = clamp(target.x, -47, 47);
-  target.z = clamp(target.z, -30, 30);
+  target.x = clamp(target.x, -TARGET_LIMIT_X, TARGET_LIMIT_X);
+  target.z = clamp(target.z, -TARGET_LIMIT_Z, TARGET_LIMIT_Z);
   return target;
 }
 
@@ -918,9 +953,9 @@ function updateCar(car, dt) {
   }
 
   // Detect being wedged against a wall or another car, then reverse out.
-  const atWall = Math.abs(car.pos.x) > 47 || Math.abs(car.pos.z) > 30;
-  const pointingOut = (Math.abs(car.pos.x) > 46 && forward.x * car.pos.x > 0) ||
-    (Math.abs(car.pos.z) > 29 && forward.z * car.pos.z > 0);
+  const atWall = Math.abs(car.pos.x) > TARGET_LIMIT_X || Math.abs(car.pos.z) > TARGET_LIMIT_Z;
+  const pointingOut = (Math.abs(car.pos.x) > HALF_L - 4 && forward.x * car.pos.x > 0) ||
+    (Math.abs(car.pos.z) > HALF_W - 4 && forward.z * car.pos.z > 0);
   const barelyMoving = Math.abs(car.speed) < 2.5 && distance > 6 && !car.airborne;
   if (barelyMoving || (atWall && pointingOut && distance > 6)) {
     car.stuckTimer += dt;
@@ -945,8 +980,8 @@ function updateCar(car, dt) {
   car.speed = clamp(car.speed, minSpeed, maxSpeed);
 
   car.pos.addScaledVector(forward, car.speed * dt);
-  car.pos.x = clamp(car.pos.x, -48.5, 48.5);
-  car.pos.z = clamp(car.pos.z, -31.5, 31.5);
+  car.pos.x = clamp(car.pos.x, -CAR_LIMIT_X, CAR_LIMIT_X);
+  car.pos.z = clamp(car.pos.z, -CAR_LIMIT_Z, CAR_LIMIT_Z);
 
   if (boosting) {
     car.boost = Math.max(0, car.boost - 28 * dt);
@@ -978,8 +1013,8 @@ function rightOf(car) {
 }
 
 function clampCar(car) {
-  car.pos.x = clamp(car.pos.x, -48.5, 48.5);
-  car.pos.z = clamp(car.pos.z, -31.5, 31.5);
+  car.pos.x = clamp(car.pos.x, -CAR_LIMIT_X, CAR_LIMIT_X);
+  car.pos.z = clamp(car.pos.z, -CAR_LIMIT_Z, CAR_LIMIT_Z);
 }
 
 function resolveCarCarCollisions() {
@@ -1107,7 +1142,7 @@ function resolveCarBallCollision(car) {
   car.speed = Math.max(0, car.speed - (effectiveImpulse * (nx * forward.x + nz * forward.z)) / CAR_MASS);
 
   if (!whiffed) {
-    const attackX = car.team === 'blue' ? 50 : -50;
+    const attackX = car.team === 'blue' ? HALF_L : -HALF_L;
     const aim = new THREE.Vector3(attackX, 0, rand(-FIELD.goalHalf * 0.8, FIELD.goalHalf * 0.8)).sub(ball.pos).normalize();
     const hitDirection = new THREE.Vector3(forward.x, 0, forward.z).multiplyScalar(0.55);
     hitDirection.x += nx * 0.45;
@@ -1146,8 +1181,8 @@ function syncTransforms() {
   });
   if (!goalLocked) {
     const inMouth = Math.abs(ball.pos.z) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
-    if (!inMouth) ball.pos.x = clamp(ball.pos.x, -49.2, 49.2);
-    ball.pos.z = clamp(ball.pos.z, -32.2, 32.2);
+    if (!inMouth) ball.pos.x = clamp(ball.pos.x, -BALL_LIMIT_X, BALL_LIMIT_X);
+    ball.pos.z = clamp(ball.pos.z, -BALL_LIMIT_Z, BALL_LIMIT_Z);
   }
   ballMesh.position.copy(ball.pos);
   ballGlow.position.copy(ball.pos);
@@ -1211,7 +1246,7 @@ function updateBall(dt) {
   if (!goalLocked) {
     const frameRadius = FIELD.ballRadius + 0.28;
     for (const side of [-1, 1]) {
-      const postX = side * 50;
+      const postX = side * HALF_L;
       for (const postZ of [-FIELD.goalHalf, FIELD.goalHalf]) {
         const dx = ball.pos.x - postX;
         const dz = ball.pos.z - postZ;
@@ -1242,15 +1277,15 @@ function updateBall(dt) {
   const inGoalMouth = Math.abs(ballZ) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
 
   if (inGoalMouth) {
-    if (ballX > 50) scoreGoal('blue');
-    else if (ballX < -50) scoreGoal('orange');
+    if (ballX > HALF_L) scoreGoal('blue');
+    else if (ballX < -HALF_L) scoreGoal('orange');
   } else {
-    if (ballX > 49.2) { ball.pos.x = 49.2; ball.vel.x = -Math.abs(ball.vel.x) * 0.86; }
-    if (ballX < -49.2) { ball.pos.x = -49.2; ball.vel.x = Math.abs(ball.vel.x) * 0.86; }
+    if (ballX > BALL_LIMIT_X) { ball.pos.x = BALL_LIMIT_X; ball.vel.x = -Math.abs(ball.vel.x) * 0.86; }
+    if (ballX < -BALL_LIMIT_X) { ball.pos.x = -BALL_LIMIT_X; ball.vel.x = Math.abs(ball.vel.x) * 0.86; }
   }
-  if (ballZ > 32.2) { ball.pos.z = 32.2; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
-  if (ballZ < -32.2) { ball.pos.z = -32.2; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
-  if (ball.pos.y > 45) { ball.pos.y = 45; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
+  if (ballZ > BALL_LIMIT_Z) { ball.pos.z = BALL_LIMIT_Z; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
+  if (ballZ < -BALL_LIMIT_Z) { ball.pos.z = -BALL_LIMIT_Z; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
+  if (ball.pos.y > 52) { ball.pos.y = 52; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
 
   ballMesh.position.copy(ball.pos);
   const rollRate = 1 / FIELD.ballRadius;
@@ -1325,7 +1360,7 @@ function updateCamera(dt) {
   const player = cars[0];
 
   if (cameraMode === 'broadcast') {
-    desiredCamera.set(0, 80, 112);
+    desiredCamera.set(0, 95, 135);
     lookTarget.set(0, 0, 0);
   } else if (cameraMode === 'chase') {
     const forward = new THREE.Vector3(Math.cos(player.heading), 0, -Math.sin(player.heading));
@@ -1336,10 +1371,10 @@ function updateCamera(dt) {
     lookTarget.copy(ball.pos);
   } else if (cameraMode === 'orbit') {
     orbitAngle += dt * 0.22;
-    desiredCamera.set(Math.cos(orbitAngle) * 112, 56, Math.sin(orbitAngle) * 112);
+    desiredCamera.set(Math.cos(orbitAngle) * 135, 68, Math.sin(orbitAngle) * 135);
     lookTarget.set(0, 0, 0);
   } else {
-    desiredCamera.set(0, 155, 0.1);
+    desiredCamera.set(0, 185, 0.1);
     lookTarget.set(0, 0, 0);
   }
 
@@ -1504,6 +1539,7 @@ window.__rl3d = {
     return {
       total: pads.length,
       big: pads.filter(p => p.big).length,
+      small: pads.filter(p => !p.big).length,
       active: pads.filter(p => p.cooldown <= 0).length,
       positions: pads.map(p => ({ x: p.x, z: p.z, big: p.big, amount: p.amount, cooldown: +p.cooldown.toFixed(1) }))
     };
