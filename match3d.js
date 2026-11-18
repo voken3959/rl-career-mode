@@ -1049,9 +1049,12 @@ function updateCar(car, dt) {
       car.vel.z += forward.z * BOOST_ACCEL * falloff * dt;
     }
 
-    // Tyre grip bleeds off sideways velocity created by bumps and wall impacts.
+    // Tyre grip keeps the car planted through corners. A large sideways
+    // velocity can only come from a bump or wall hit, so let those slide a
+    // little before the tyres bite instead of snapping the car in place.
     const lateralNow = car.vel.x * right.x + car.vel.z * right.z;
-    const grip = LATERAL_GRIP * (1 - 0.35 * clamp(speedNow / Math.max(1, maxSpeed), 0, 1));
+    const slideGrip = Math.abs(lateralNow) > 5 ? LATERAL_SLIDE_GRIP : LATERAL_GRIP;
+    const grip = slideGrip * (1 - 0.2 * clamp(speedNow / Math.max(1, maxSpeed), 0, 1));
     const lateralCorrection = clamp(-lateralNow, -grip * dt, grip * dt);
     car.vel.x += right.x * lateralCorrection;
     car.vel.z += right.z * lateralCorrection;
@@ -1150,7 +1153,8 @@ const DRIVE_ACCEL = 16;
 const BRAKE_DECEL = 32;
 const REVERSE_ACCEL = 9;
 const BOOST_ACCEL = 20;
-const LATERAL_GRIP = 20;
+const LATERAL_GRIP = 110;
+const LATERAL_SLIDE_GRIP = 26;
 const JUMP_SPEED = 9.0;
 const FLIP_DURATION = 0.55;
 const FLIP_FORWARD_BOOST = 5.5;
