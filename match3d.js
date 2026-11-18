@@ -624,6 +624,14 @@ function createCar(team, isPlayer) {
     wheels,
     flame,
     pos: new THREE.Vector3(),
+    y: 0,
+    vy: 0,
+    airborne: false,
+    flipTimer: 0,
+    flipAngle: 0,
+    jumpCooldown: 0,
+    reverseTimer: 0,
+    stuckTimer: 0,
     speed: 0,
     heading: 0,
     cooldown: 0,
@@ -631,7 +639,10 @@ function createCar(team, isPlayer) {
     targetError: new THREE.Vector3(),
     reactionTimer: 0,
     boost: 100,
-    role: 'attack'
+    role: 'attack',
+    kickoffRole: 'support',
+    roleTimer: 0,
+    index: 0
   };
 }
 
@@ -642,6 +653,7 @@ const cars = [
   createCar('orange', false)
 ];
 
+cars.forEach((car, index) => { car.index = index; });
 cars[1].role = 'defend';
 cars[3].role = 'defend';
 
@@ -656,6 +668,9 @@ let speedMultiplier = 1;
 let cameraMode = 'broadcast';
 let matchState = 'KICKOFF';
 let kickoffTimer = 1.6;
+let kickoffPhase = 0;
+let kickoffCount = 0;
+let roleUpdateTimer = 0;
 let goalTimer = 0;
 let goalLocked = false;
 let orbitAngle = 0;
@@ -669,9 +684,20 @@ function resetPositions(message) {
     { x: 34, z: -12, heading: Math.PI }
   ];
 
+  kickoffCount++;
+  const takers = kickoffCount % 2 === 1 ? [0, 2] : [1, 3];
+
   cars.forEach((car, index) => {
     const start = starts[index];
     car.pos.set(start.x, 0, start.z);
+    car.y = 0;
+    car.vy = 0;
+    car.airborne = false;
+    car.flipTimer = 0;
+    car.flipAngle = 0;
+    car.jumpCooldown = 0;
+    car.reverseTimer = 0;
+    car.stuckTimer = 0;
     car.speed = 0;
     car.heading = start.heading;
     car.cooldown = 0;
@@ -679,8 +705,10 @@ function resetPositions(message) {
     car.boost = 100;
     car.reactionTimer = 0;
     car.targetError.set(0, 0, 0);
-    car.mesh.position.copy(car.pos);
-    car.mesh.rotation.y = car.heading;
+    car.role = index % 2 === 0 ? 'attack' : 'defend';
+    car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
+    car.mesh.position.set(start.x, 0, start.z);
+    car.mesh.rotation.set(0, start.heading, 0);
   });
 
   ball.pos.set(0, FIELD.ballRadius, 0);
@@ -688,6 +716,8 @@ function resetPositions(message) {
   ballMesh.position.copy(ball.pos);
   matchState = 'KICKOFF';
   kickoffTimer = 1.6;
+  kickoffPhase = 3.4;
+  roleUpdateTimer = 0;
   goalTimer = 0;
   goalLocked = false;
 
@@ -709,10 +739,26 @@ function scoreGoal(team) {
   goalTimer = 1.8;
   goalLocked = true;
   ball.vel.set(0, 0, 0);
+  // Settle the ball deep in the net so it stays clear of the frozen cars.
+  ball.pos.x = team === 'blue' ? 54 : -54;
+  ball.pos.y = FIELD.ballRadius;
+  ballMesh.position.copy(ball.pos);
+  ballGlow.position.copy(ball.pos);
+  for (let i = 0; i < 4; i++) resolveCarCarCollisions();
+  syncTransforms();
   matchState = 'GOAL';
 }
 
 /* ============================== SIMULATION ============================== */
+
+function assignRoles() {
+  ['blue', 'orange'].forEach(team => {
+    const mates = cars.filter(car => car.team === team);
+    mates.sort((a, b) => a.pos.distanceTo(ball.pos) - b.pos.distanceTo(ball.pos));
+    mates[0].role = 'attack';
+    mates[1].role = 'defend';
+  });
+}
 
 function chooseTarget(car) {
   if (car.reactionTimer <= 0) {
@@ -721,18 +767,34 @@ function chooseTarget(car) {
     car.targetError.set(rand(-errorRadius, errorRadius), 0, rand(-errorRadius, errorRadius));
   }
 
-  const target = ball.pos.clone().add(car.targetError);
-  target.y = 0;
+  const ownGoalX = car.team === 'blue' ? -50 : 50;
+  const target = new THREE.Vector3();
 
-  if (car.role === 'defend') {
-    const ownGoalX = car.team === 'blue' ? -50 : 50;
-    const ballInOwnHalf = car.team === 'blue' ? ball.pos.x < -12 : ball.pos.x > 12;
-    const veryFar = car.pos.distanceTo(ball.pos) > 44;
-    if (ballInOwnHalf || veryFar) {
-      target.set(ownGoalX * 0.55, 0, ball.pos.z * 0.4);
+  if (kickoffPhase > 0 && car.kickoffRole === 'kickoff') {
+    target.copy(ball.pos);
+  } else if (kickoffPhase > 0) {
+    // The non-taker breaks wide instead of swarming the centre spot.
+    target.set(ownGoalX * 0.5, 0, car.index === 1 ? -20 : 20);
+  } else if (car.role === 'defend') {
+    const nearOwnGoal = car.team === 'blue' ? ball.pos.x < -32 : ball.pos.x > 32;
+    const zBias = car.index === 1 ? 9 : car.index === 3 ? -9 : 0;
+    target.set(ownGoalX * 0.68 + (ball.pos.x - ownGoalX) * 0.16, 0, ball.pos.z * 0.55 + zBias);
+    if (nearOwnGoal && car.pos.distanceTo(ball.pos) < 18) target.copy(ball.pos);
+  } else {
+    const mate = cars.find(other => other.team === car.team && other !== car);
+    const mateCloser = mate && mate.pos.distanceTo(ball.pos) + 2 < car.pos.distanceTo(ball.pos);
+    if (mateCloser) {
+      const behind = car.team === 'blue' ? -1 : 1;
+      const side = car.index % 2 === 0 ? 1 : -1;
+      target.set(ball.pos.x + behind * 10, 0, ball.pos.z + side * 12);
+    } else {
+      target.copy(ball.pos);
     }
   }
 
+  target.y = 0;
+  const errorScale = car.kickoffRole === 'kickoff' ? 1 : (car.role === 'attack' ? 0.8 : 0.35);
+  target.addScaledVector(car.targetError, errorScale);
   target.x = clamp(target.x, -47, 47);
   target.z = clamp(target.z, -30, 30);
   return target;
@@ -742,6 +804,8 @@ function updateCar(car, dt) {
   car.cooldown = Math.max(0, car.cooldown - dt);
   car.reactionTimer -= dt;
   car.flameTimer = Math.max(0, car.flameTimer - dt);
+  car.jumpCooldown = Math.max(0, car.jumpCooldown - dt);
+  car.reverseTimer = Math.max(0, car.reverseTimer - dt);
   car.flame.visible = car.flameTimer > 0;
 
   const target = chooseTarget(car);
@@ -754,32 +818,87 @@ function updateCar(car, dt) {
     // The car mesh points along its local +X axis, so world forward is (cos h, -sin h).
     const desiredHeading = Math.atan2(-toTarget.z, toTarget.x);
     difference = angleDelta(car.heading, desiredHeading);
-    const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92) * (1 - Math.min(0.42, (car.speed / Math.max(1, skill.speed * 1.45)) * 0.38));
+    const airSteer = car.airborne ? 0.35 : 1;
+    const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92) * airSteer *
+      (1 - Math.min(0.42, (Math.abs(car.speed) / Math.max(1, skill.speed * 1.45)) * 0.38));
     const steerInput = clamp(difference / 0.42, -1, 1);
     car.heading += steerInput * turnRate * dt;
     car.heading = Math.atan2(Math.sin(car.heading), Math.cos(car.heading));
   }
 
   const alignment = Math.cos(difference);
-  const wantsBoost = distance > 18 && alignment > 0.75 && car.boost > 0 && Math.random() < skill.boost * dt * 2;
+  const wantsBoost = distance > 18 && alignment > 0.75 && car.boost > 0 && !car.airborne && Math.random() < skill.boost * dt * 2;
   const boosting = wantsBoost || car.flameTimer > 0;
   const baseSpeed = skill.speed * (car.isPlayer ? 1 : 0.96);
   const maxSpeed = baseSpeed * (boosting ? 1.45 : 1);
 
   const forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
+  const ballDistance = Math.hypot(ball.pos.x - car.pos.x, ball.pos.z - car.pos.z);
+
+  // Jumping and front flips — kickoff takers launch into the ball, field players challenge aerials.
+  if (!car.airborne && car.jumpCooldown <= 0 && !goalLocked) {
+    const kickoffFlip = kickoffPhase > 1.6 && car.kickoffRole === 'kickoff' && ballDistance < 7 && car.speed > 6;
+    const aerialChallenge = ball.pos.y > 3 && ballDistance < 10 && car.speed > 8 &&
+      (car.role === 'attack' || car.kickoffRole === 'kickoff') && Math.random() < 0.4 + skill.accuracy * 0.6;
+    const defensiveAerial = car.role === 'defend' && ball.pos.y > 2.5 && ballDistance < 10 &&
+      (car.team === 'blue' ? ball.pos.x < 0 : ball.pos.x > 0) && Math.random() < 0.35 + skill.accuracy * 0.5;
+    const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < 10 && car.speed > 10 && Math.random() < 0.18 + skill.accuracy * 0.35;
+    if (kickoffFlip || aerialChallenge || defensiveAerial || lowFlip) {
+      const flip = kickoffFlip || lowFlip || defensiveAerial || ball.pos.y > 4.5;
+      car.vy = flip ? 19 : 22;
+      car.airborne = true;
+      car.jumpCooldown = 0.8;
+      if (flip) {
+        car.flipTimer = 0.55;
+        car.speed = Math.min(maxSpeed * 1.35, car.speed + 11);
+      }
+    }
+  }
+
+  if (car.airborne || car.vy > 0) {
+    car.vy -= 58 * dt;
+    car.y += car.vy * dt;
+    if (car.y <= 0) {
+      car.y = 0;
+      car.vy = 0;
+      car.airborne = false;
+      car.flipTimer = 0;
+      car.flipAngle = 0;
+    }
+  }
+  if (car.flipTimer > 0) {
+    car.flipTimer = Math.max(0, car.flipTimer - dt);
+    car.flipAngle = (1 - car.flipTimer / 0.55) * Math.PI * 2;
+  } else {
+    car.flipAngle *= Math.max(0, 1 - 8 * dt);
+  }
+
+  // Detect being wedged against a wall or another car, then reverse out.
+  const atWall = Math.abs(car.pos.x) > 47 || Math.abs(car.pos.z) > 30;
+  const pointingOut = (Math.abs(car.pos.x) > 46 && forward.x * car.pos.x > 0) ||
+    (Math.abs(car.pos.z) > 29 && forward.z * car.pos.z > 0);
+  const barelyMoving = Math.abs(car.speed) < 2.5 && distance > 6 && !car.airborne;
+  if (barelyMoving || (atWall && pointingOut && distance > 6)) {
+    car.stuckTimer += dt;
+  } else {
+    car.stuckTimer = Math.max(0, car.stuckTimer - dt * 2);
+  }
+  if (car.stuckTimer > 0.7 && car.reverseTimer <= 0) {
+    car.reverseTimer = 0.75;
+    car.stuckTimer = 0;
+  }
 
   // Cars only ever drive along their own forward axis — no sideways movement.
-  // Slow down while turning so the steering circle actually converges on the target.
   const cornering = clamp(0.32 + 0.68 * alignment, 0.32, 1);
   const approachSpeed = Math.min(maxSpeed, Math.max(7, distance * 2.2));
-  const desiredSpeed = approachSpeed * cornering;
-  const acceleration = 48 * (boosting ? 1.7 : 1);
-  if (car.speed < desiredSpeed) {
-    car.speed = Math.min(desiredSpeed, car.speed + acceleration * dt);
-  } else {
-    car.speed = Math.max(desiredSpeed, car.speed - 78 * dt);
-  }
-  car.speed = clamp(car.speed, 0, maxSpeed);
+  let desiredSpeed = approachSpeed * cornering;
+  if (car.reverseTimer > 0) desiredSpeed = -Math.min(11, maxSpeed * 0.35);
+
+  const changingDirection = Math.sign(desiredSpeed) !== Math.sign(car.speed) && car.speed !== 0;
+  const rate = car.reverseTimer > 0 ? 90 : (changingDirection ? 85 : 48 * (boosting ? 1.7 : 1));
+  car.speed += clamp(desiredSpeed - car.speed, -rate * dt, rate * dt);
+  const minSpeed = car.reverseTimer > 0 ? -Math.min(11, maxSpeed * 0.35) : -8;
+  car.speed = clamp(car.speed, minSpeed, maxSpeed);
 
   car.pos.addScaledVector(forward, car.speed * dt);
   car.pos.x = clamp(car.pos.x, -48.5, 48.5);
@@ -792,41 +911,148 @@ function updateCar(car, dt) {
     car.boost = Math.min(100, car.boost + 7 * dt);
   }
 
-  car.mesh.position.copy(car.pos);
-  car.mesh.rotation.y = car.heading;
-  car.wheels.forEach(wheel => { wheel.rotation.x += car.speed * dt * 1.6; });
+  car.wheels.forEach(wheel => { wheel.rotation.x += Math.abs(car.speed) * dt * 1.6; });
+}
 
-  const ballDistance = Math.hypot(car.pos.x - ball.pos.x, car.pos.z - ball.pos.z);
-  const maxHitHeight = 3.6 + skill.loft * 5;
-  if (ballDistance < 3.3 && ball.pos.y < maxHitHeight && car.cooldown <= 0) {
-    car.cooldown = 0.4 + (1 - skill.accuracy) * 0.45;
+/* ============================== COLLISIONS ============================== */
 
-    const contactNormal = new THREE.Vector3(ball.pos.x - car.pos.x, 0, ball.pos.z - car.pos.z);
-    if (contactNormal.lengthSq() < 0.0001) contactNormal.copy(forward);
-    contactNormal.normalize();
+const CAR_COLLISION_RADIUS = 2.35;
+const CAR_HALF_LENGTH = 2.05;
+const CAR_HALF_WIDTH = 1.45;
+const CAR_HEIGHT = 2.4;
+const CAR_MASS = 1.5;
+const BALL_MASS = 0.42;
+const BALL_RESTITUTION = 0.8;
+const CAR_RESTITUTION = 0.35;
+const BALL_MAX_SPEED = 80;
 
-    const carVelocity = forward.clone().multiplyScalar(car.speed);
-    const approach = -ball.vel.clone().sub(carVelocity).dot(contactNormal);
+function forwardOf(car) {
+  return { x: Math.cos(car.heading), z: -Math.sin(car.heading) };
+}
 
-    // Only the closing speed transfers into the ball: faster car = harder hit.
-    if (approach <= 0.8) return;
+function rightOf(car) {
+  return { x: Math.sin(car.heading), z: Math.cos(car.heading) };
+}
 
-    if (Math.random() < skill.whiff) {
-      if (car.isPlayer && Math.random() < 0.18) {
-        addCommentary('The rookie swings at nothing. That whiff sums up Bronze.');
+function clampCar(car) {
+  car.pos.x = clamp(car.pos.x, -48.5, 48.5);
+  car.pos.z = clamp(car.pos.z, -31.5, 31.5);
+}
+
+function resolveCarCarCollisions() {
+  for (let i = 0; i < cars.length; i++) {
+    for (let j = i + 1; j < cars.length; j++) {
+      const a = cars[i];
+      const b = cars[j];
+      if (Math.abs(a.y - b.y) > CAR_HEIGHT * 0.85) continue;
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const dist = Math.hypot(dx, dz);
+      const minDist = CAR_COLLISION_RADIUS * 2;
+      if (dist >= minDist) continue;
+
+      let nx = 1;
+      let nz = 0;
+      if (dist > 0.0001) {
+        nx = dx / dist;
+        nz = dz / dist;
       }
-      return;
+
+      // Positional correction first — overlapping cars are always pushed apart.
+      const penetration = minDist - dist;
+      a.pos.x -= nx * penetration * 0.5;
+      a.pos.z -= nz * penetration * 0.5;
+      b.pos.x += nx * penetration * 0.5;
+      b.pos.z += nz * penetration * 0.5;
+      clampCar(a);
+      clampCar(b);
+
+      const af = forwardOf(a);
+      const bf = forwardOf(b);
+      const closing = (af.x * a.speed - bf.x * b.speed) * nx + (af.z * a.speed - bf.z * b.speed) * nz;
+      if (closing <= 0) continue;
+
+      const impulse = ((1 + CAR_RESTITUTION) * closing) / (2 / CAR_MASS);
+      a.speed = Math.max(0, a.speed - (impulse * (af.x * nx + af.z * nz)) / CAR_MASS);
+      b.speed = Math.max(0, b.speed + (impulse * (bf.x * nx + bf.z * nz)) / CAR_MASS);
     }
+  }
+}
 
-    const carMass = 1.5;
-    const ballMass = 0.42;
-    const restitution = 0.8;
-    const impulse = ((1 + restitution) * approach) / (1 / carMass + 1 / ballMass);
+function resolveCarBallCollision(car) {
+  if (goalLocked) return;
+  const carBottom = car.y;
+  const carTop = car.y + CAR_HEIGHT;
+  if (ball.pos.y - FIELD.ballRadius > carTop || ball.pos.y + FIELD.ballRadius < carBottom) return;
 
+  const forward = forwardOf(car);
+  const right = rightOf(car);
+  const dx = ball.pos.x - car.pos.x;
+  const dz = ball.pos.z - car.pos.z;
+
+  // Ball in the car's local frame (local X = nose direction, local Z = side).
+  const localX = dx * forward.x + dz * forward.z;
+  const localZ = dx * right.x + dz * right.z;
+  if (Math.abs(localX) > CAR_HALF_LENGTH + FIELD.ballRadius || Math.abs(localZ) > CAR_HALF_WIDTH + FIELD.ballRadius) return;
+
+  const clampedX = clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH);
+  const clampedZ = clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH);
+  const offsetX = localX - clampedX;
+  const offsetZ = localZ - clampedZ;
+  const offsetLength = Math.hypot(offsetX, offsetZ);
+
+  let nx;
+  let nz;
+  let penetration;
+
+  if (offsetLength > 0.0001) {
+    if (offsetLength >= FIELD.ballRadius) return;
+    penetration = FIELD.ballRadius - offsetLength;
+    nx = (forward.x * offsetX + right.x * offsetZ) / offsetLength;
+    nz = (forward.z * offsetX + right.z * offsetZ) / offsetLength;
+  } else if (Math.abs(localX) > Math.abs(localZ) * (CAR_HALF_LENGTH / CAR_HALF_WIDTH)) {
+    const sign = localX >= 0 ? 1 : -1;
+    nx = forward.x * sign;
+    nz = forward.z * sign;
+    penetration = CAR_HALF_LENGTH - Math.abs(localX) + FIELD.ballRadius;
+  } else {
+    const sign = localZ >= 0 ? 1 : -1;
+    nx = right.x * sign;
+    nz = right.z * sign;
+    penetration = CAR_HALF_WIDTH - Math.abs(localZ) + FIELD.ballRadius;
+  }
+
+  // Hard separation: the ball can never remain inside a car or vice versa.
+  ball.pos.x += nx * penetration;
+  ball.pos.z += nz * penetration;
+  car.pos.x -= nx * penetration * 0.18;
+  car.pos.z -= nz * penetration * 0.18;
+  clampCar(car);
+
+  if (car.cooldown > 0) return;
+
+  const carVelX = forward.x * car.speed;
+  const carVelZ = forward.z * car.speed;
+  const approach = -((ball.vel.x - carVelX) * nx + (ball.vel.z - carVelZ) * nz);
+  if (approach <= 0.6) return;
+
+  car.cooldown = 0.4 + (1 - skill.accuracy) * 0.45;
+
+  const impulse = ((1 + BALL_RESTITUTION) * approach) / (1 / CAR_MASS + 1 / BALL_MASS);
+  const whiffed = Math.random() < skill.whiff;
+  const effectiveImpulse = whiffed ? impulse * 0.12 : impulse;
+
+  // Base momentum transfer from the actual impact.
+  ball.vel.x += (nx * effectiveImpulse) / BALL_MASS;
+  ball.vel.z += (nz * effectiveImpulse) / BALL_MASS;
+  car.speed = Math.max(0, car.speed - (effectiveImpulse * (nx * forward.x + nz * forward.z)) / CAR_MASS);
+
+  if (!whiffed) {
     const attackX = car.team === 'blue' ? 50 : -50;
     const aim = new THREE.Vector3(attackX, 0, rand(-FIELD.goalHalf * 0.8, FIELD.goalHalf * 0.8)).sub(ball.pos).normalize();
-
-    const hitDirection = forward.clone().multiplyScalar(0.55).add(contactNormal.clone().multiplyScalar(0.45)).normalize();
+    const hitDirection = new THREE.Vector3(forward.x, 0, forward.z).multiplyScalar(0.55);
+    hitDirection.x += nx * 0.45;
+    hitDirection.z += nz * 0.45;
     hitDirection.lerp(aim, skill.accuracy * 0.55).normalize();
     hitDirection.x += rand(-skill.spread, skill.spread);
     hitDirection.z += rand(-skill.spread, skill.spread);
@@ -834,18 +1060,38 @@ function updateCar(car, dt) {
     hitDirection.normalize();
 
     const transferredSpeed = car.speed * (0.7 + skill.power * 0.005) + skill.power * 0.2 + rand(0, 4);
-    ball.vel.addScaledVector(contactNormal, (impulse * 0.4) / ballMass);
-    ball.vel.lerp(hitDirection.clone().multiplyScalar(Math.max(transferredSpeed, ball.vel.length())), 0.78);
-
+    ball.vel.lerp(hitDirection.multiplyScalar(Math.max(transferredSpeed, ball.vel.length())), 0.78);
     ball.pos.y = Math.max(ball.pos.y, FIELD.ballRadius + 0.25);
-    car.speed = Math.max(0, car.speed - (impulse / carMass) * 0.1);
     car.flameTimer = 0.22;
     ballGlow.intensity = 1.6;
 
-    if (car.isPlayer && skillKey === 'bronze' && car.speed < 14 && Math.random() < 0.12) {
+    if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
       addCommentary('He actually made clean contact! Don\'t get used to it.');
     }
+  } else if (car.isPlayer && Math.random() < 0.18) {
+    addCommentary('Mistimed challenge — only a glancing touch.');
   }
+
+  const horizontalSpeed = Math.hypot(ball.vel.x, ball.vel.z);
+  if (horizontalSpeed > BALL_MAX_SPEED) {
+    const scale = BALL_MAX_SPEED / horizontalSpeed;
+    ball.vel.x *= scale;
+    ball.vel.z *= scale;
+  }
+}
+
+function syncTransforms() {
+  cars.forEach(car => {
+    car.mesh.position.set(car.pos.x, car.y, car.pos.z);
+    car.mesh.rotation.set(0, car.heading, car.flipAngle);
+  });
+  if (!goalLocked) {
+    const inMouth = Math.abs(ball.pos.z) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
+    if (!inMouth) ball.pos.x = clamp(ball.pos.x, -49.2, 49.2);
+    ball.pos.z = clamp(ball.pos.z, -32.2, 32.2);
+  }
+  ballMesh.position.copy(ball.pos);
+  ballGlow.position.copy(ball.pos);
 }
 
 function updateBall(dt) {
@@ -873,21 +1119,50 @@ function updateBall(dt) {
     if (ball.vel.y < 1.1) ball.vel.y = 0;
   }
 
+  // Solid goal frame — the ball cannot slip through posts or the crossbar.
+  if (!goalLocked) {
+    const frameRadius = FIELD.ballRadius + 0.28;
+    for (const side of [-1, 1]) {
+      const postX = side * 50;
+      for (const postZ of [-FIELD.goalHalf, FIELD.goalHalf]) {
+        const dx = ball.pos.x - postX;
+        const dz = ball.pos.z - postZ;
+        const dist = Math.hypot(dx, dz);
+        if (ball.pos.y < FIELD.goalHeight + frameRadius && dist > 0.0001 && dist < frameRadius) {
+          const nx = dx / dist;
+          const nz = dz / dist;
+          ball.pos.x = postX + nx * frameRadius;
+          ball.pos.z = postZ + nz * frameRadius;
+          const normalSpeed = ball.vel.x * nx + ball.vel.z * nz;
+          if (normalSpeed < 0) {
+            ball.vel.x -= 1.8 * normalSpeed * nx;
+            ball.vel.z -= 1.8 * normalSpeed * nz;
+          }
+        }
+      }
+      const barX = ball.pos.x - postX;
+      if (Math.abs(barX) < frameRadius && Math.abs(ball.pos.z) < FIELD.goalHalf && Math.abs(ball.pos.y - FIELD.goalHeight) < frameRadius) {
+        const ny = ball.pos.y >= FIELD.goalHeight ? 1 : -1;
+        ball.pos.y = FIELD.goalHeight + ny * frameRadius;
+        if (ball.vel.y * ny < 0) ball.vel.y *= -0.8;
+      }
+    }
+  }
+
   const ballX = ball.pos.x;
   const ballZ = ball.pos.z;
   const inGoalMouth = Math.abs(ballZ) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
 
-  if (ballX > 50 && inGoalMouth) {
-    scoreGoal('blue');
-  } else if (ballX < -50 && inGoalMouth) {
-    scoreGoal('orange');
+  if (inGoalMouth) {
+    if (ballX > 50) scoreGoal('blue');
+    else if (ballX < -50) scoreGoal('orange');
   } else {
     if (ballX > 49.2) { ball.pos.x = 49.2; ball.vel.x = -Math.abs(ball.vel.x) * 0.86; }
     if (ballX < -49.2) { ball.pos.x = -49.2; ball.vel.x = Math.abs(ball.vel.x) * 0.86; }
-    if (ballZ > 32.2) { ball.pos.z = 32.2; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
-    if (ballZ < -32.2) { ball.pos.z = -32.2; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
-    if (ball.pos.y > 45) { ball.pos.y = 45; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
   }
+  if (ballZ > 32.2) { ball.pos.z = 32.2; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
+  if (ballZ < -32.2) { ball.pos.z = -32.2; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
+  if (ball.pos.y > 45) { ball.pos.y = 45; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
 
   ballMesh.position.copy(ball.pos);
   const rollRate = 1 / FIELD.ballRadius;
@@ -910,15 +1185,36 @@ function step(dt) {
   if (kickoffTimer > 0) {
     kickoffTimer -= dt;
     matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
-    if (kickoffTimer <= 0) addCommentary('Kickoff! The rookie is already scrambling.');
+    if (kickoffTimer <= 0) addCommentary(skillKey === 'bronze' ? 'Kickoff! The rookie is already scrambling.' : 'Kickoff! Both teams break from the centre in formation.');
     updateBall(dt);
     return;
   }
 
   matchState = 'PLAYING';
   clock -= dt;
-  cars.forEach(car => updateCar(car, dt));
-  updateBall(dt);
+  kickoffPhase = Math.max(0, kickoffPhase - dt);
+
+  roleUpdateTimer -= dt;
+  if (roleUpdateTimer <= 0) {
+    assignRoles();
+    roleUpdateTimer = 0.45;
+  }
+
+  // Substepping keeps fast cars and the ball from tunnelling through each other.
+  const substeps = 4;
+  const subDt = dt / substeps;
+  for (let i = 0; i < substeps; i++) {
+    cars.forEach(car => updateCar(car, subDt));
+    updateBall(subDt);
+    if (!goalLocked) {
+      // A few solver passes settle car↔car and car↔ball constraints together.
+      for (let solver = 0; solver < 5; solver++) {
+        resolveCarCarCollisions();
+        cars.forEach(car => resolveCarBallCollision(car));
+      }
+    }
+    syncTransforms();
+  }
 
   if (clock <= 0) {
     clock = 180;
@@ -1085,7 +1381,39 @@ function animate(now) {
 
 window.__rl3d = {
   get ball() { return { x: ball.pos.x, y: ball.pos.y, z: ball.pos.z, vx: ball.vel.x, vz: ball.vel.z }; },
-  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, x: c.pos.x, z: c.pos.z, heading: c.heading, speed: c.speed, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
+  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, role: c.role, kickoffRole: c.kickoffRole, x: c.pos.x, y: c.y, z: c.pos.z, heading: c.heading, speed: c.speed, airborne: c.airborne, flipping: c.flipTimer > 0, reversing: c.reverseTimer > 0, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
+  forceStuck(index) { cars[index].speed = 0; cars[index].stuckTimer = 1; },
+  get collisions() {
+    const carPairs = [];
+    for (let i = 0; i < cars.length; i++) {
+      for (let j = i + 1; j < cars.length; j++) {
+        const distance = Math.hypot(cars[j].pos.x - cars[i].pos.x, cars[j].pos.z - cars[i].pos.z);
+        carPairs.push({
+          pair: i + '-' + j,
+          distance: +distance.toFixed(2),
+          minDistance: +(CAR_COLLISION_RADIUS * 2).toFixed(2),
+          overlapping: distance < CAR_COLLISION_RADIUS * 2 - 0.01 && Math.abs(cars[i].y - cars[j].y) <= CAR_HEIGHT * 0.85
+        });
+      }
+    }
+    const ballContacts = cars.map((car, index) => {
+      const f = forwardOf(car);
+      const r = rightOf(car);
+      const dx = ball.pos.x - car.pos.x;
+      const dz = ball.pos.z - car.pos.z;
+      const localX = dx * f.x + dz * f.z;
+      const localZ = dx * r.x + dz * r.z;
+      const edge = Math.hypot(localX - clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH), localZ - clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH));
+      return {
+        car: index,
+        gap: +(edge - FIELD.ballRadius).toFixed(2),
+        overlapping: edge - FIELD.ballRadius < -0.01 &&
+          ball.pos.y - FIELD.ballRadius <= car.y + CAR_HEIGHT &&
+          ball.pos.y + FIELD.ballRadius >= car.y
+      };
+    });
+    return { carPairs, ballContacts };
+  },
   get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; }
 };
 
