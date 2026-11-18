@@ -56,6 +56,7 @@ const dom = {
   statSpeed: document.getElementById('statSpeed'),
   statAccuracy: document.getElementById('statAccuracy'),
   statWhiff: document.getElementById('statWhiff'),
+  statBoost: document.getElementById('statBoost'),
   commentary: document.getElementById('commentary'),
   playBtn: document.getElementById('playBtn'),
   replayBtn: document.getElementById('replayBtn'),
@@ -326,6 +327,10 @@ createGoal(1);
 
 /* ============================== BOOST PADS ============================== */
 
+const BOOST_MAX = 100;
+const SMALL_BOOST_AMOUNT = 12;
+const BIG_BOOST_AMOUNT = 100;
+
 const padPositions = [
   [-42, -25], [-42, 25], [42, -25], [42, 25],
   [-42, 0], [42, 0], [0, -27], [0, 27],
@@ -335,25 +340,43 @@ const padPositions = [
   [0, -10], [0, 10], [-35, -8], [-35, 8], [35, -8], [35, 8]
 ];
 
-const padGeometry = new THREE.PlaneGeometry(2.2, 2.2);
-padPositions.forEach(([x, z]) => {
+const bigPadKeys = new Set(['-42,-25', '-42,25', '42,-25', '42,25', '0,-27', '0,27']);
+
+const pads = padPositions.map(([x, z]) => {
+  const big = bigPadKeys.has(x + ',' + z);
   const blue = x < 0;
-  const pad = new THREE.Mesh(padGeometry, new THREE.MeshBasicMaterial({
-    color: blue ? 0x00c8ff : 0xff7a1a,
-    transparent: true,
-    opacity: 0.78,
-    side: THREE.DoubleSide
-  }));
+  const size = big ? 3.4 : 2.2;
+  const pad = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshBasicMaterial({
+      color: big ? 0xffd54a : (blue ? 0x00c8ff : 0xff7a1a),
+      transparent: true,
+      opacity: big ? 0.92 : 0.78,
+      side: THREE.DoubleSide
+    })
+  );
   pad.rotation.x = -Math.PI / 2;
   pad.position.set(x, 0.08, z);
   scene.add(pad);
 
-  const inner = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.25, side: THREE.DoubleSide
-  }));
+  const innerSize = big ? 2.2 : 1.2;
+  const inner = new THREE.Mesh(
+    new THREE.PlaneGeometry(innerSize, innerSize),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: big ? 0.45 : 0.25, side: THREE.DoubleSide })
+  );
   inner.rotation.x = -Math.PI / 2;
   inner.position.set(x, 0.1, z);
   scene.add(inner);
+
+  return {
+    x, z, big,
+    amount: big ? BIG_BOOST_AMOUNT : SMALL_BOOST_AMOUNT,
+    radius: big ? 2.8 : 2.0,
+    maxCooldown: big ? 10 : 4,
+    cooldown: 0,
+    mesh: pad,
+    inner
+  };
 });
 
 /* ============================== STANDS & CROWD ============================== */
@@ -639,7 +662,8 @@ function createCar(team, isPlayer) {
     flameTimer: 0,
     targetError: new THREE.Vector3(),
     reactionTimer: 0,
-    boost: 100,
+    boost: 33,
+    boostHold: 0,
     role: 'attack',
     kickoffRole: 'support',
     roleTimer: 0,
@@ -704,13 +728,20 @@ function resetPositions(message) {
     car.heading = start.heading;
     car.cooldown = 0;
     car.flameTimer = 0;
-    car.boost = 100;
+    car.boost = 33;
+    car.boostHold = 0;
     car.reactionTimer = 0;
     car.targetError.set(0, 0, 0);
     car.role = index % 2 === 0 ? 'attack' : 'defend';
     car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
     car.mesh.position.set(start.x, 0, start.z);
     car.mesh.rotation.set(0, start.heading, 0);
+  });
+
+  pads.forEach(pad => {
+    pad.cooldown = 0;
+    pad.mesh.visible = true;
+    pad.inner.visible = true;
   });
 
   ball.pos.set(0, FIELD.ballRadius, 0);
@@ -808,6 +839,7 @@ function updateCar(car, dt) {
   car.flameTimer = Math.max(0, car.flameTimer - dt);
   car.jumpCooldown = Math.max(0, car.jumpCooldown - dt);
   car.reverseTimer = Math.max(0, car.reverseTimer - dt);
+  car.boostHold = Math.max(0, car.boostHold - dt);
   car.flame.visible = car.flameTimer > 0;
 
   const target = chooseTarget(car);
@@ -829,10 +861,16 @@ function updateCar(car, dt) {
   }
 
   const alignment = Math.cos(difference);
-  const wantsBoost = distance > 18 && alignment > 0.75 && car.boost > 0 && !car.airborne && Math.random() < skill.boost * dt * 2;
-  const boosting = wantsBoost || car.flameTimer > 0;
+
+  // Decide in short holds so boost is a sustained burn, not per-frame flicker.
+  if (car.boostHold <= 0 && car.boost > 0 && !car.airborne && distance > 12 && alignment > 0.6) {
+    if (Math.random() < 0.35 + skill.boost * 0.65) {
+      car.boostHold = 0.4 + skill.boost * 0.5;
+    }
+  }
+  const boosting = car.boostHold > 0 && car.boost > 0;
   const baseSpeed = skill.speed * (car.isPlayer ? 1 : 0.96);
-  const maxSpeed = baseSpeed * (boosting ? 1.45 : 1);
+  const maxSpeed = baseSpeed * (boosting ? 1.55 : 1);
 
   const forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
   const ballDistance = Math.hypot(ball.pos.x - car.pos.x, ball.pos.z - car.pos.z);
@@ -896,7 +934,7 @@ function updateCar(car, dt) {
 
   // Cars only ever drive along their own forward axis — no sideways movement.
   const cornering = clamp(0.32 + 0.68 * alignment, 0.32, 1);
-  const approachSpeed = Math.min(maxSpeed, Math.max(7, distance * 2.2));
+  const approachSpeed = Math.min(maxSpeed, Math.max(7, distance * 2.2) * (boosting ? 1.45 : 1));
   let desiredSpeed = approachSpeed * cornering;
   if (car.reverseTimer > 0) desiredSpeed = -Math.min(11, maxSpeed * 0.35);
 
@@ -911,11 +949,10 @@ function updateCar(car, dt) {
   car.pos.z = clamp(car.pos.z, -31.5, 31.5);
 
   if (boosting) {
-    car.boost = Math.max(0, car.boost - 22 * dt);
-    car.flameTimer = 0.14;
-  } else {
-    car.boost = Math.min(100, car.boost + 7 * dt);
+    car.boost = Math.max(0, car.boost - 28 * dt);
+    car.flameTimer = 0.12;
   }
+  car.boost = clamp(car.boost, 0, BOOST_MAX);
 
   car.wheels.forEach(wheel => { wheel.rotation.x += Math.abs(car.speed) * dt * 1.6; });
 }
@@ -1116,6 +1153,35 @@ function syncTransforms() {
   ballGlow.position.copy(ball.pos);
 }
 
+function updateBoostPads(dt) {
+  for (const pad of pads) {
+    if (pad.cooldown > 0) {
+      pad.cooldown -= dt;
+      if (pad.cooldown <= 0) {
+        pad.cooldown = 0;
+        pad.mesh.visible = true;
+        pad.inner.visible = true;
+      }
+      continue;
+    }
+
+    for (const car of cars) {
+      if (car.y > 2.2 || car.boost >= BOOST_MAX) continue;
+      const distance = Math.hypot(car.pos.x - pad.x, car.pos.z - pad.z);
+      if (distance > pad.radius) continue;
+
+      car.boost = Math.min(BOOST_MAX, car.boost + pad.amount);
+      pad.cooldown = pad.maxCooldown;
+      pad.mesh.visible = false;
+      pad.inner.visible = false;
+      if (car.isPlayer) {
+        addCommentary(pad.big ? 'Big pad — boost tank refilled!' : 'Small boost pad collected.');
+      }
+      break;
+    }
+  }
+}
+
 function updateBall(dt) {
   if (goalLocked) {
     ballMesh.position.copy(ball.pos);
@@ -1235,6 +1301,7 @@ function step(dt) {
         cars.forEach(car => resolveCarBallCollision(car));
       }
     }
+    updateBoostPads(subDt);
     syncTransforms();
   }
 
@@ -1288,6 +1355,7 @@ function updateUI() {
   dom.scoreOrange.textContent = scoreOrange;
   dom.clock.textContent = formatClock(clock);
   dom.matchState.textContent = matchState;
+  dom.statBoost.textContent = Math.round(cars[0].boost) + '%';
 }
 
 function applySkillUI() {
@@ -1403,7 +1471,7 @@ function animate(now) {
 
 window.__rl3d = {
   get ball() { return { x: ball.pos.x, y: ball.pos.y, z: ball.pos.z, vx: ball.vel.x, vz: ball.vel.z }; },
-  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, role: c.role, kickoffRole: c.kickoffRole, x: c.pos.x, y: c.y, z: c.pos.z, heading: c.heading, speed: c.speed, airborne: c.airborne, flipping: c.flipTimer > 0, flipAngle: c.flipAngle, reversing: c.reverseTimer > 0, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
+  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, role: c.role, kickoffRole: c.kickoffRole, x: c.pos.x, y: c.y, z: c.pos.z, heading: c.heading, speed: c.speed, boost: +c.boost.toFixed(1), boosting: c.boostHold > 0 && c.boost > 0, airborne: c.airborne, flipping: c.flipTimer > 0, flipAngle: c.flipAngle, reversing: c.reverseTimer > 0, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
   forceStuck(index) { cars[index].speed = 0; cars[index].stuckTimer = 1; },
   forceFlip(index) {
     const car = cars[index];
@@ -1419,6 +1487,26 @@ window.__rl3d = {
     a.pos.set(0, 0, 0); a.y = 0; a.heading = 0; a.speed = speedA;
     b.pos.set(2.0, 0, 0); b.y = 0; b.heading = headingB; b.speed = speedB;
     syncTransforms();
+  },
+  teleportCar(index, x, z, boost) {
+    const car = cars[index];
+    car.pos.set(x, 0, z);
+    car.y = 0;
+    car.vy = 0;
+    car.airborne = false;
+    car.speed = 0;
+    car.boostHold = 0;
+    car.flameTimer = 0;
+    if (typeof boost === 'number') car.boost = boost;
+    syncTransforms();
+  },
+  get pads() {
+    return {
+      total: pads.length,
+      big: pads.filter(p => p.big).length,
+      active: pads.filter(p => p.cooldown <= 0).length,
+      positions: pads.map(p => ({ x: p.x, z: p.z, big: p.big, amount: p.amount, cooldown: +p.cooldown.toFixed(1) }))
+    };
   },
   get collisions() {
     const carPairs = [];
