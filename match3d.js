@@ -730,8 +730,8 @@ const cars = [
 ];
 
 cars.forEach((car, index) => { car.index = index; });
-cars[1].role = 'defend';
-cars[3].role = 'defend';
+cars[1].role = 'support';
+cars[3].role = 'support';
 
 /* ============================== MATCH STATE ============================== */
 
@@ -743,6 +743,7 @@ const ball = {
   mass: 0.42,
   resting: false
 };
+const lastTouch = { team: null, car: null, time: -999, speed: 0 };
 let scoreBlue = 0;
 let scoreOrange = 0;
 let clock = 180;
@@ -798,7 +799,7 @@ function resetPositions(message) {
     car.boostHold = 0;
     car.reactionTimer = 0;
     car.targetError.set(0, 0, 0);
-    car.role = index % 2 === 0 ? 'attack' : 'defend';
+    car.role = index % 2 === 0 ? 'attack' : 'support';
     car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
     car.mesh.position.set(start.x, 0, start.z);
     car.mesh.rotation.set(0, start.heading, 0);
@@ -859,10 +860,34 @@ function scoreGoal(team) {
 function assignRoles() {
   ['blue', 'orange'].forEach(team => {
     const mates = cars.filter(car => car.team === team);
-    mates.sort((a, b) => a.pos.distanceTo(ball.pos) - b.pos.distanceTo(ball.pos));
-    mates[0].role = 'attack';
-    mates[1].role = 'defend';
+    // Keep the current first man unless his partner is clearly better placed.
+    const attacker = mates.find(car => car.role === 'attack') || mates[0];
+    const support = mates.find(car => car !== attacker);
+    const attackerDistance = attacker.pos.distanceTo(ball.pos);
+    const supportDistance = support.pos.distanceTo(ball.pos);
+
+    if (supportDistance + 4 < attackerDistance) {
+      attacker.role = 'support';
+      support.role = 'attack';
+    } else {
+      attacker.role = 'attack';
+      support.role = 'support';
+    }
   });
+}
+
+function reflectWithinArena(value, limit) {
+  const span = limit * 2;
+  const wrapped = ((value + limit) % span + span) % span;
+  return wrapped - limit;
+}
+
+function futureBallPosition(seconds, target) {
+  return target.set(
+    reflectWithinArena(ball.pos.x + ball.vel.x * seconds, HALF_L - BALL_RADIUS),
+    FIELD.ballRadius,
+    reflectWithinArena(ball.pos.z + ball.vel.z * seconds, HALF_W - BALL_RADIUS)
+  );
 }
 
 function chooseTarget(car) {
@@ -873,28 +898,51 @@ function chooseTarget(car) {
   }
 
   const ownGoalX = car.team === 'blue' ? -HALF_L : HALF_L;
+  const attackDir = car.team === 'blue' ? 1 : -1;
   const target = new THREE.Vector3();
+  const mate = cars.find(other => other.team === car.team && other !== car);
+  const ballSpeed = Math.hypot(ball.vel.x, ball.vel.z);
 
   if (kickoffPhase > 0 && car.kickoffRole === 'kickoff') {
     target.copy(ball.pos);
   } else if (kickoffPhase > 0) {
     // The non-taker breaks wide instead of swarming the centre spot.
     target.set(ownGoalX * 0.5, 0, car.index === 1 ? -28 : 28);
-  } else if (car.role === 'defend') {
-    const defensiveLine = HALF_L - 18;
-    const nearOwnGoal = car.team === 'blue' ? ball.pos.x < -defensiveLine : ball.pos.x > defensiveLine;
-    const zBias = car.index === 1 ? 9 : car.index === 3 ? -9 : 0;
-    target.set(ownGoalX * 0.68 + (ball.pos.x - ownGoalX) * 0.16, 0, ball.pos.z * 0.55 + zBias);
-    if (nearOwnGoal && car.pos.distanceTo(ball.pos) < 18) target.copy(ball.pos);
+  } else if (car.role === 'attack') {
+    // Run at the ball's future position instead of chasing its shadow.
+    const lead = clamp((car.pos.distanceTo(ball.pos) - 3.5) / 55, 0, 0.55);
+    futureBallPosition(lead, target);
   } else {
-    const mate = cars.find(other => other.team === car.team && other !== car);
-    const mateCloser = mate && mate.pos.distanceTo(ball.pos) + 2 < car.pos.distanceTo(ball.pos);
-    if (mateCloser) {
-      const behind = car.team === 'blue' ? -1 : 1;
-      const side = car.index % 2 === 0 ? 1 : -1;
-      target.set(ball.pos.x + behind * 10, 0, ball.pos.z + side * 12);
+    const mateZ = mate ? mate.pos.z : 0;
+    const side = car.pos.z === mateZ
+      ? (car.index % 2 === 0 ? 1 : -1)
+      : Math.sign(car.pos.z - mateZ);
+    const dangerZone = car.team === 'blue' ? ball.pos.x < -HALF_L + 24 : ball.pos.x > HALF_L - 24;
+    const touchedByUs = lastTouch.team === car.team;
+    const ballDistance = car.pos.distanceTo(ball.pos);
+
+    if (ballDistance > 26) {
+      // Do not spectate from the other end: get back into the play.
+      futureBallPosition(clamp(0.15 + ballSpeed * 0.005, 0.2, 0.45), target);
+      target.z += side * 4;
+    } else if (dangerZone) {
+      // No keeper: sit upfield of the clearance instead of guarding the net.
+      target.set(ball.pos.x + attackDir * 14, 0, ball.pos.z + side * 10);
+    } else if (ballSpeed > 9) {
+      // A big touch just happened. If it was ours, trail the ball for the
+      // rebound; if it was theirs, cut the ball off along its path.
+      const readTime = clamp(0.22 + ballSpeed * 0.006, 0.25, 0.6);
+      futureBallPosition(readTime, target);
+      const shift = touchedByUs ? -6 : 5;
+      const inverseSpeed = 1 / Math.max(1, ballSpeed);
+      target.x += ball.vel.x * inverseSpeed * shift;
+      target.z += ball.vel.z * inverseSpeed * shift;
+      target.z += side * (touchedByUs ? 7 : 3);
     } else {
-      target.copy(ball.pos);
+      // Slow or contested ball: stay close behind the play as the second
+      // option, offset to the side for a rebound or pass.
+      target.set(ball.pos.x - attackDir * 9, 0, ball.pos.z + side * 8);
+      if (car.pos.distanceTo(ball.pos) < 9) target.copy(ball.pos);
     }
   }
 
@@ -951,7 +999,7 @@ function updateCar(car, dt) {
     const kickoffFlip = kickoffPhase > 1.6 && car.kickoffRole === 'kickoff' && ballDistance < 7 && car.speed > 6;
     const aerialChallenge = ball.pos.y > 3 && ballDistance < 10 && car.speed > 8 &&
       (car.role === 'attack' || car.kickoffRole === 'kickoff') && Math.random() < 0.4 + skill.accuracy * 0.6;
-    const defensiveAerial = car.role === 'defend' && ball.pos.y > 2.5 && ballDistance < 10 &&
+    const defensiveAerial = car.role === 'support' && ball.pos.y > 2.5 && ballDistance < 10 &&
       (car.team === 'blue' ? ball.pos.x < 0 : ball.pos.x > 0) && Math.random() < 0.35 + skill.accuracy * 0.5;
     const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < 10 && car.speed > 10 && Math.random() < 0.18 + skill.accuracy * 0.35;
     if (kickoffFlip || aerialChallenge || defensiveAerial || lowFlip) {
@@ -974,11 +1022,13 @@ function updateCar(car, dt) {
   // Steering: yaw rate builds with speed and is limited by tyre grip and inertia.
   const speedAbs = Math.hypot(car.vel.x, car.vel.z);
   const speedRatio = clamp(speedAbs / Math.max(4, maxSpeed), 0, 1);
-  const steerAuthority = car.airborne ? 0.16 : 0.12 + 0.88 * clamp(speedAbs / 8, 0, 1);
+  const againstWall = Math.abs(car.pos.x) > TARGET_LIMIT_X || Math.abs(car.pos.z) > TARGET_LIMIT_Z;
+  const wallEscape = againstWall && speedAbs < 5 && !car.airborne;
+  const steerAuthority = car.airborne ? 0.16 : 0.55 + 0.45 * clamp(speedAbs / 8, 0, 1);
   const turnScale = 1 - speedRatio * 0.38;
   const targetYaw = clamp(difference / 0.45, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
-    steerAuthority * turnScale;
-  const yawAccel = car.airborne ? 5 : 15;
+    steerAuthority * turnScale * (wallEscape ? 2.2 : 1);
+  const yawAccel = car.airborne ? 5 : (wallEscape ? 26 : 15);
   car.yawRate += clamp(targetYaw - car.yawRate, -yawAccel * dt, yawAccel * dt);
   car.yawRate = clamp(car.yawRate, -6, 6);
   car.heading += car.yawRate * dt;
@@ -1029,13 +1079,13 @@ function updateCar(car, dt) {
 
   const speedError = desiredSpeed - vForward;
   let throttleAccel = 0;
-  if (vForward > maxSpeed) {
-    // Preserve momentum from a bump instead of stamping on the brakes.
-    throttleAccel = 0;
-  } else if (Math.abs(speedError) > 0.15 && car.reverseTimer <= 0) {
-    throttleAccel = clamp(speedError * 5.5, -BRAKE_DECEL, DRIVE_ACCEL);
-  } else if (car.reverseTimer > 0) {
+  if (car.reverseTimer > 0) {
     throttleAccel = -REVERSE_ACCEL;
+  } else if (Math.abs(speedError) > 0.15) {
+    throttleAccel = clamp(speedError * 5.5, -BRAKE_DECEL, DRIVE_ACCEL);
+    // Never add drive above top speed, but still brake hard when the next
+    // touch is behind us or the car is carrying too much speed into a turn.
+    if (vForward > maxSpeed && throttleAccel > 0) throttleAccel = 0;
   }
 
   if (onGround) {
@@ -1092,17 +1142,16 @@ function updateCar(car, dt) {
   car.vy = car.vel.y;
 
   // Detect being wedged against a wall or another car, then reverse out.
-  const atWall = Math.abs(car.pos.x) > TARGET_LIMIT_X || Math.abs(car.pos.z) > TARGET_LIMIT_Z;
   const pointingOut = (Math.abs(car.pos.x) > HALF_L - 4 && forward.x * car.pos.x > 0) ||
     (Math.abs(car.pos.z) > HALF_W - 4 && forward.z * car.pos.z > 0);
   const barelyMoving = Math.abs(car.speed) < 2.5 && distance > 6 && !car.airborne;
-  if (barelyMoving || (atWall && pointingOut && distance > 6)) {
+  if (barelyMoving || (againstWall && pointingOut && distance > 6)) {
     car.stuckTimer += dt;
   } else {
     car.stuckTimer = Math.max(0, car.stuckTimer - dt * 2);
   }
   if (car.stuckTimer > 0.7 && car.reverseTimer <= 0) {
-    car.reverseTimer = 0.75;
+    car.reverseTimer = 1.1;
     car.stuckTimer = 0;
   }
 
@@ -1462,6 +1511,11 @@ function resolveCarBallCollision(car) {
   if (ball.spin.lengthSq() > 2025) ball.spin.setLength(45);
   const speed = ball.vel.length();
   if (speed > BALL_MAX_SPEED) ball.vel.multiplyScalar(BALL_MAX_SPEED / speed);
+
+  lastTouch.team = car.team;
+  lastTouch.car = car.index;
+  lastTouch.time = elapsed;
+  lastTouch.speed = ball.vel.length();
 
   const cf = forwardOf(car);
   car.speed = car.vel.x * cf.x + car.vel.z * cf.z;
@@ -2172,7 +2226,8 @@ window.__rl3d = {
     return { carPairs, ballContacts };
   },
   get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; },
-  get state() { return matchState; }
+  get state() { return matchState; },
+  get touch() { return { team: lastTouch.team, car: lastTouch.car, age: +(elapsed - lastTouch.time).toFixed(2), speed: +lastTouch.speed.toFixed(1) }; }
 };
 
 applySkillUI();
