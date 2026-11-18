@@ -104,8 +104,8 @@ function formatClock(seconds) {
 /* ============================== THREE SETUP ============================== */
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070a12);
-scene.fog = new THREE.FogExp2(0x0b0d17, 0.0014);
+scene.background = new THREE.Color(0x08060c);
+scene.fog = new THREE.FogExp2(0x0c0816, 0.0014);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 1600);
 camera.position.set(0, 95, 135);
@@ -123,7 +123,7 @@ dom.container.appendChild(renderer.domElement);
 
 /* ============================== LIGHTING ============================== */
 
-scene.add(new THREE.HemisphereLight(0xa9c8ff, 0x2a1108, 0.55));
+scene.add(new THREE.HemisphereLight(0xb6b4ff, 0x2a1108, 0.55));
 
 const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.0);
 keyLight.position.set(65, 150, 55);
@@ -138,7 +138,7 @@ keyLight.shadow.camera.far = 380;
 keyLight.shadow.bias = -0.0005;
 scene.add(keyLight);
 
-const fillLight = new THREE.DirectionalLight(0x4f8dff, 0.65);
+const fillLight = new THREE.DirectionalLight(0x8f5cff, 0.65);
 fillLight.position.set(-85, 70, -60);
 scene.add(fillLight);
 
@@ -151,8 +151,8 @@ const sky = new THREE.Mesh(
     depthWrite: false,
     fog: false,
     uniforms: {
-      topColor: { value: new THREE.Color(0x05070f) },
-      bottomColor: { value: new THREE.Color(0x1b1420) }
+      topColor: { value: new THREE.Color(0x05030a) },
+      bottomColor: { value: new THREE.Color(0x1a0f24) }
     },
     vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform vec3 topColor; uniform vec3 bottomColor; varying vec3 vPos; void main(){ float h = normalize(vPos).y * 0.5 + 0.5; gl_FragColor = vec4(mix(bottomColor, topColor, h), 1.0); }'
@@ -208,10 +208,10 @@ function createFieldTexture() {
     void dir;
   });
 
-  ctx.fillStyle = 'rgba(226,240,255,0.06)';
+  ctx.fillStyle = 'rgba(190,140,255,0.07)';
   ctx.font = 'bold 110px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('CAREER MODE', 1024, 710);
+  ctx.fillText('ROAD TO PRO', 1024, 710);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -229,8 +229,8 @@ scene.add(field);
 
 /* ============================== WALLS ============================== */
 
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x172033, roughness: 0.45, metalness: 0.35 });
-const trimBlue = new THREE.MeshStandardMaterial({ color: 0x0a2438, emissive: 0x0088cc, emissiveIntensity: 0.8, roughness: 0.4 });
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x171122, roughness: 0.45, metalness: 0.35 });
+const trimBlue = new THREE.MeshStandardMaterial({ color: 0x140a24, emissive: 0x7a00ff, emissiveIntensity: 0.85, roughness: 0.4 });
 
 function addWallBox(w, h, d, x, y, z) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMaterial);
@@ -464,7 +464,7 @@ function perimeterPoint(t, width, height, radius) {
 
 const STAND_W = FIELD.length + 20;
 const STAND_H = FIELD.width + 16;
-const standMaterial = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.95, metalness: 0.05 });
+const standMaterial = new THREE.MeshStandardMaterial({ color: 0x0f0a18, roughness: 0.95, metalness: 0.05 });
 for (let row = 0; row < 8; row++) {
   const width = STAND_W + row * 4.6;
   const height = STAND_H + row * 4.6;
@@ -490,7 +490,7 @@ const crowdMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughnes
 const CROWD_COUNT = 4200;
 const crowd = new THREE.InstancedMesh(crowdGeometry, crowdMaterial, CROWD_COUNT);
 const dummy = new THREE.Object3D();
-const crowdPalette = [0xd8552c, 0xff8a3d, 0x8c2f1d, 0xffc46b, 0x27324f, 0x6b2a20, 0xe0a15a];
+const crowdPalette = [0xd8552c, 0xff8a3d, 0x8c2f1d, 0xffc46b, 0x3b1a66, 0x6b2a20, 0xe0a15a];
 for (let i = 0; i < CROWD_COUNT; i++) {
   const row = Math.floor(Math.random() * 8);
   const width = STAND_W + row * 4.6;
@@ -514,7 +514,7 @@ scene.add(crowd);
 
 /* ============================== ROOF & FLOODLIGHTS ============================== */
 
-const beamMaterial = new THREE.MeshStandardMaterial({ color: 0x1c2636, roughness: 0.6, metalness: 0.6 });
+const beamMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1228, roughness: 0.6, metalness: 0.6 });
 function beamBetween(a, b, radius, material) {
   const direction = new THREE.Vector3().subVectors(b, a);
   const length = direction.length();
@@ -616,7 +616,7 @@ function createCar(team, isPlayer) {
 
   const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55 });
   const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x111722, roughness: 0.5, metalness: 0.4 });
-  const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x0b1826, roughness: 0.15, metalness: 0.7, transparent: true, opacity: 0.85 });
+  const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x120a20, roughness: 0.15, metalness: 0.7, transparent: true, opacity: 0.85 });
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), bodyMaterial);
   body.position.y = 1.05;

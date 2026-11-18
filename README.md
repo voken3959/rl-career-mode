@@ -1,6 +1,8 @@
-# Rocket League Career Mode
+<p align="center"><img src="assets/road-to-pro.png" alt="Road To Pro" width="340"></p>
 
-A browser-based career mode game: start as a Bronze rookie and grind your way to the RLCS pro league.
+# Road To Pro
+
+Road To Pro is a browser-based Rocket League career mode: start as a Bronze rookie and grind your way to the RLCS pro league.
 
 ## Play it
 
@@ -41,6 +43,7 @@ A season lasts 40 weeks. When it ends, the season counter increments and your ca
 - `styles.css` — minimal dark UI, responsive layout
 - `game.js` — all game state, simulation and rendering logic
 - `match3d.html` / `match3d.js` / `match3d.css` — the 3D match viewer (Three.js)
+- `assets/` — Road To Pro logo and favicon
 - `vendor/three.module.js` — vendored Three.js so the 3D viewer works offline
 
 ## Hosting
