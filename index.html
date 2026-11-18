@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Rocket League Career Mode — start in Bronze and fight your way to the RLCS pro league." />
+  <title>Rocket League Career Mode</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="grid-bg"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">RL</div>
+      <div class="brand-copy">
+        <div class="brand-title">CAREER MODE</div>
+        <div class="brand-sub">BRONZE → PRO</div>
+      </div>
+    </div>
+    <div class="header-stats" id="headerStats"></div>
+    <button class="icon-btn" data-action="settings" title="Settings" aria-label="Settings">⚙</button>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="Main navigation">
+    <button class="tab active" data-tab="dashboard">🏠 Dashboard</button>
+    <button class="tab" data-tab="training">🏋️ Training</button>
+    <button class="tab" data-tab="matches">🎮 Matches</button>
+    <button class="tab" data-tab="clubs">🛡️ Clubs</button>
+    <button class="tab" data-tab="leaderboard">📊 Leaderboard</button>
+    <button class="tab" data-tab="achievements">🏆 Achievements</button>
+  </nav>
+
+  <main id="app" class="app"></main>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+
+  <script src="game.js"></script>
+</body>
+</html>
