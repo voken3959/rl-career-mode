@@ -756,7 +756,7 @@ function renderDashboard() {
 
   $('#app').innerHTML =
     '<div class="page-head"><div><h1 class="page-title">CAREER DASHBOARD</h1>' +
-    '<div class="page-sub">Season ' + state.season + ' · Week ' + state.week + ' of 40 · ' + esc(state.name) + ' · ' + esc(ROLES[state.role].name) + '</div></div>' +
+    '<div class="page-sub">Season ' + state.season + ' · Week ' + state.week + ' of 40 · ' + esc(state.name) + ' · ' + esc((ROLES[state.role] || ROLES.allrounder).name) + '</div></div>' +
     '<div class="card-note">Overall rating <strong style="color:var(--cyan);font-size:18px">' + overall(state) + '</strong></div></div>' +
 
     '<section class="hero">' +
