@@ -43,10 +43,11 @@ const FIELD = { length: 120, width: 80, goalHalf: 8, goalHeight: 8, ballRadius: 
 const HALF_L = FIELD.length / 2;
 const HALF_W = FIELD.width / 2;
 const CORNER_R = FIELD.cornerRadius;
-const CAR_LIMIT_X = HALF_L - 1.5;
-const CAR_LIMIT_Z = HALF_W - 1.5;
-const BALL_LIMIT_X = HALF_L - 0.8;
-const BALL_LIMIT_Z = HALF_W - 0.8;
+const GRAVITY = 9.81;
+const PHYSICS_SUBSTEPS = 8;
+const SOLVER_ITERATIONS = 6;
+const CEILING_Y = 52;
+const ARENA_WALL_INSET = 0.6;
 const TARGET_LIMIT_X = HALF_L - 3;
 const TARGET_LIMIT_Z = HALF_W - 4;
 
@@ -613,6 +614,8 @@ scene.add(ballGlow);
 function createCar(team, isPlayer) {
   const color = team === 'blue' ? 0x1f8fff : 0xff6a1a;
   const group = new THREE.Group();
+  const chassis = new THREE.Group();
+  group.add(chassis);
 
   const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55 });
   const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x111722, roughness: 0.5, metalness: 0.4 });
@@ -621,28 +624,29 @@ function createCar(team, isPlayer) {
   const body = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), bodyMaterial);
   body.position.y = 1.05;
   body.castShadow = true;
-  group.add(body);
+  chassis.add(body);
 
   const hood = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 2.2), bodyMaterial);
   hood.position.set(1.25, 1.62, 0);
   hood.castShadow = true;
-  group.add(hood);
+  chassis.add(hood);
 
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.85, 2.0), glassMaterial);
   cabin.position.set(-0.3, 1.85, 0);
   cabin.castShadow = true;
-  group.add(cabin);
+  chassis.add(cabin);
 
   const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.12, 2.3), darkMaterial);
   spoiler.position.set(-1.95, 1.85, 0);
-  group.add(spoiler);
+  chassis.add(spoiler);
 
   const wheels = [];
   const wheelGeometry = new THREE.CylinderGeometry(0.62, 0.62, 0.48, 16);
+  wheelGeometry.rotateX(Math.PI / 2);
   [[1.35, 1.25], [1.35, -1.25], [-1.35, 1.25], [-1.35, -1.25]].forEach(([x, z]) => {
     const wheel = new THREE.Mesh(wheelGeometry, darkMaterial);
-    wheel.rotation.z = Math.PI / 2;
     wheel.position.set(x, 0.62, z);
+    wheel.rotation.order = 'YXZ';
     wheel.castShadow = true;
     group.add(wheel);
     wheels.push(wheel);
@@ -652,7 +656,7 @@ function createCar(team, isPlayer) {
   [-0.8, 0.8].forEach(z => {
     const light = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.28, 0.5), headlightMaterial);
     light.position.set(2.08, 1.25, z);
-    group.add(light);
+    chassis.add(light);
   });
 
   const flame = new THREE.Mesh(
@@ -662,7 +666,7 @@ function createCar(team, isPlayer) {
   flame.rotation.z = Math.PI / 2;
   flame.position.set(-2.6, 1.0, 0);
   flame.visible = false;
-  group.add(flame);
+  chassis.add(flame);
 
   if (isPlayer) {
     const ring = new THREE.Mesh(
@@ -681,21 +685,31 @@ function createCar(team, isPlayer) {
     team,
     isPlayer,
     mesh: group,
+    chassis,
     wheels,
     flame,
     pos: new THREE.Vector3(),
+    vel: new THREE.Vector3(),
     y: 0,
     vy: 0,
     airborne: false,
     flipTimer: 0,
     flipAngle: 0,
+    flipRate: 0,
     flipDir: new THREE.Vector3(),
     jumpCooldown: 0,
     reverseTimer: 0,
     stuckTimer: 0,
     speed: 0,
     heading: 0,
+    yawRate: 0,
+    wheelSpin: 0,
+    pitch: 0,
+    roll: 0,
+    landImpact: 0,
+    steerAngle: 0,
     cooldown: 0,
+    hitQuality: 1,
     flameTimer: 0,
     targetError: new THREE.Vector3(),
     reactionTimer: 0,
@@ -721,7 +735,14 @@ cars[3].role = 'defend';
 
 /* ============================== MATCH STATE ============================== */
 
-const ball = { pos: new THREE.Vector3(0, FIELD.ballRadius, 0), vel: new THREE.Vector3() };
+const ball = {
+  pos: new THREE.Vector3(0, FIELD.ballRadius, 0),
+  vel: new THREE.Vector3(),
+  spin: new THREE.Vector3(),
+  radius: FIELD.ballRadius,
+  mass: 0.42,
+  resting: false
+};
 let scoreBlue = 0;
 let scoreOrange = 0;
 let clock = 180;
@@ -754,15 +775,23 @@ function resetPositions(message) {
     car.pos.set(start.x, 0, start.z);
     car.y = 0;
     car.vy = 0;
+    car.vel.set(0, 0, 0);
     car.airborne = false;
     car.flipTimer = 0;
     car.flipAngle = 0;
+    car.flipRate = 0;
     car.flipDir.set(0, 0, 0);
     car.jumpCooldown = 0;
     car.reverseTimer = 0;
     car.stuckTimer = 0;
     car.speed = 0;
     car.heading = start.heading;
+    car.yawRate = 0;
+    car.steerAngle = 0;
+    car.wheelSpin = 0;
+    car.pitch = 0;
+    car.roll = 0;
+    car.landImpact = 0;
     car.cooldown = 0;
     car.flameTimer = 0;
     car.boost = 33;
@@ -773,6 +802,7 @@ function resetPositions(message) {
     car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
     car.mesh.position.set(start.x, 0, start.z);
     car.mesh.rotation.set(0, start.heading, 0);
+    car.chassis.rotation.set(0, 0, 0);
   });
 
   pads.forEach(pad => {
@@ -783,7 +813,10 @@ function resetPositions(message) {
 
   ball.pos.set(0, FIELD.ballRadius, 0);
   ball.vel.set(0, 0, 0);
+  ball.spin.set(0, 0, 0);
+  ball.resting = false;
   ballMesh.position.copy(ball.pos);
+  ballMesh.quaternion.identity();
   matchState = 'KICKOFF';
   kickoffTimer = 1.6;
   kickoffPhase = 3.4;
@@ -791,6 +824,7 @@ function resetPositions(message) {
   goalTimer = 0;
   goalLocked = false;
 
+  syncTransforms();
   if (message) addCommentary(message);
 }
 
@@ -809,8 +843,9 @@ function scoreGoal(team) {
   goalTimer = 1.8;
   goalLocked = true;
   ball.vel.set(0, 0, 0);
-  // Settle the ball deep in the net so it stays clear of the frozen cars.
-  ball.pos.x = team === 'blue' ? HALF_L + 4 : -(HALF_L + 4);
+  ball.spin.set(0, 0, 0);
+  // Settle the ball deep in the net, clear of the frozen cars and the back netting.
+  ball.pos.x = team === 'blue' ? HALF_L + 3.3 : -(HALF_L + 3.3);
   ball.pos.y = FIELD.ballRadius;
   ballMesh.position.copy(ball.pos);
   ballGlow.position.copy(ball.pos);
@@ -885,23 +920,22 @@ function updateCar(car, dt) {
   toTarget.y = 0;
   const distance = toTarget.length();
 
+  let forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
+  let right = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
+  const vForward = car.vel.x * forward.x + car.vel.z * forward.z;
+  const horizontalSpeed = Math.hypot(car.vel.x, car.vel.z);
+  const onGround = !car.airborne && car.y <= 0.001;
+
   let difference = 0;
   if (distance > 0.1) {
     // The car mesh points along its local +X axis, so world forward is (cos h, -sin h).
     const desiredHeading = Math.atan2(-toTarget.z, toTarget.x);
     difference = angleDelta(car.heading, desiredHeading);
-    const airSteer = car.airborne ? 0.35 : 1;
-    const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92) * airSteer *
-      (1 - Math.min(0.42, (Math.abs(car.speed) / Math.max(1, skill.speed * 1.45)) * 0.38));
-    const steerInput = clamp(difference / 0.42, -1, 1);
-    car.heading += steerInput * turnRate * dt;
-    car.heading = Math.atan2(Math.sin(car.heading), Math.cos(car.heading));
   }
-
   const alignment = Math.cos(difference);
 
   // Decide in short holds so boost is a sustained burn, not per-frame flicker.
-  if (car.boostHold <= 0 && car.boost > 0 && !car.airborne && distance > 12 && alignment > 0.6) {
+  if (car.boostHold <= 0 && car.boost > 0 && onGround && distance > 12 && alignment > 0.6) {
     if (Math.random() < 0.35 + skill.boost * 0.65) {
       car.boostHold = 0.4 + skill.boost * 0.5;
     }
@@ -910,11 +944,10 @@ function updateCar(car, dt) {
   const baseSpeed = skill.speed * (car.isPlayer ? 1 : 0.96);
   const maxSpeed = baseSpeed * (boosting ? 1.55 : 1);
 
-  const forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
   const ballDistance = Math.hypot(ball.pos.x - car.pos.x, ball.pos.z - car.pos.z);
 
   // Jumping and front flips — kickoff takers launch into the ball, field players challenge aerials.
-  if (!car.airborne && car.jumpCooldown <= 0 && !goalLocked) {
+  if (onGround && car.jumpCooldown <= 0 && !goalLocked) {
     const kickoffFlip = kickoffPhase > 1.6 && car.kickoffRole === 'kickoff' && ballDistance < 7 && car.speed > 6;
     const aerialChallenge = ball.pos.y > 3 && ballDistance < 10 && car.speed > 8 &&
       (car.role === 'attack' || car.kickoffRole === 'kickoff') && Math.random() < 0.4 + skill.accuracy * 0.6;
@@ -923,37 +956,137 @@ function updateCar(car, dt) {
     const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < 10 && car.speed > 10 && Math.random() < 0.18 + skill.accuracy * 0.35;
     if (kickoffFlip || aerialChallenge || defensiveAerial || lowFlip) {
       const flip = kickoffFlip || lowFlip || defensiveAerial || ball.pos.y > 4.5;
-      car.vy = flip ? 19 : 22;
+      car.vel.y = flip ? JUMP_SPEED * 0.72 : JUMP_SPEED;
       car.airborne = true;
       car.jumpCooldown = 0.8;
       if (flip) {
-        // A front flip rotates the nose down and pushes along the nose direction.
-        car.flipDir.copy(forward).normalize();
-        car.flipTimer = 0.55;
-        car.speed = Math.min(maxSpeed * 1.3, car.speed + 6);
+        // A front flip rotates the nose down and carries momentum along the nose.
+        car.flipDir.copy(forward);
+        car.flipTimer = FLIP_DURATION;
+        car.flipRate = -(Math.PI * 2) / FLIP_DURATION;
+        car.flipAngle = 0;
+        car.vel.x += forward.x * FLIP_FORWARD_BOOST;
+        car.vel.z += forward.z * FLIP_FORWARD_BOOST;
       }
     }
   }
 
-  if (car.airborne || car.vy > 0) {
-    car.vy -= 58 * dt;
-    car.y += car.vy * dt;
-    if (car.y <= 0) {
-      car.y = 0;
-      car.vy = 0;
-      car.airborne = false;
-      car.flipTimer = 0;
-      car.flipAngle = 0;
-    }
-  }
+  // Steering: yaw rate builds with speed and is limited by tyre grip and inertia.
+  const speedAbs = Math.hypot(car.vel.x, car.vel.z);
+  const speedRatio = clamp(speedAbs / Math.max(4, maxSpeed), 0, 1);
+  const steerAuthority = car.airborne ? 0.16 : 0.12 + 0.88 * clamp(speedAbs / 8, 0, 1);
+  const turnScale = 1 - speedRatio * 0.38;
+  const targetYaw = clamp(difference / 0.45, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
+    steerAuthority * turnScale;
+  const yawAccel = car.airborne ? 5 : 15;
+  car.yawRate += clamp(targetYaw - car.yawRate, -yawAccel * dt, yawAccel * dt);
+  car.yawRate = clamp(car.yawRate, -6, 6);
+  car.heading += car.yawRate * dt;
+  car.heading = Math.atan2(Math.sin(car.heading), Math.cos(car.heading));
+  car.steerAngle += (clamp(difference / 0.5, -1, 1) * 0.45 - car.steerAngle) * Math.min(1, dt * 10);
+
   if (car.flipTimer > 0) {
     car.flipTimer = Math.max(0, car.flipTimer - dt);
-    // Negative Z rotation tips the nose down: a real front flip.
-    car.flipAngle = -(1 - car.flipTimer / 0.55) * Math.PI * 2;
-    car.pos.addScaledVector(car.flipDir, 9 * dt);
-  } else {
-    car.flipAngle *= Math.max(0, 1 - 8 * dt);
+    car.flipAngle += car.flipRate * dt;
+    if (car.flipTimer === 0) {
+      car.flipAngle = 0;
+      car.flipRate = 0;
+    }
   }
+
+  // Gravity and vertical integration.
+  if (car.airborne || car.y > 0) {
+    car.vel.y -= GRAVITY * dt;
+  } else {
+    car.vel.y = 0;
+  }
+  car.y += car.vel.y * dt;
+  if (car.y <= 0) {
+    if (car.airborne && car.vel.y < -3) {
+      // Landing compresses the suspension and scrubs a little speed.
+      car.landImpact = clamp(-car.vel.y / 14, 0, 1);
+      car.vel.x *= 0.94;
+      car.vel.z *= 0.94;
+    }
+    car.y = 0;
+    car.vel.y = 0;
+    car.airborne = false;
+    car.flipTimer = 0;
+    car.flipAngle = 0;
+    car.flipRate = 0;
+  }
+  car.landImpact = Math.max(0, car.landImpact - dt * 3.5);
+
+  // Recompute the basis after steering before applying drive forces.
+  forward = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading));
+  right = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
+
+  const cornering = clamp(0.4 + 0.6 * alignment, 0.4, 1);
+  const approachSpeed = Math.min(maxSpeed, Math.max(6, distance * 2.4) * (boosting ? 1.4 : 1));
+  let desiredSpeed = approachSpeed * cornering;
+  if (car.reverseTimer > 0) desiredSpeed = -Math.min(10, baseSpeed * 0.35);
+  desiredSpeed = clamp(desiredSpeed, -maxSpeed * 0.45, maxSpeed);
+
+  const speedError = desiredSpeed - vForward;
+  let throttleAccel = 0;
+  if (vForward > maxSpeed) {
+    // Preserve momentum from a bump instead of stamping on the brakes.
+    throttleAccel = 0;
+  } else if (Math.abs(speedError) > 0.15 && car.reverseTimer <= 0) {
+    throttleAccel = clamp(speedError * 5.5, -BRAKE_DECEL, DRIVE_ACCEL);
+  } else if (car.reverseTimer > 0) {
+    throttleAccel = -REVERSE_ACCEL;
+  }
+
+  if (onGround) {
+    car.vel.x += forward.x * throttleAccel * dt;
+    car.vel.z += forward.z * throttleAccel * dt;
+
+    const speedNow = Math.hypot(car.vel.x, car.vel.z);
+    if (boosting && vForward < maxSpeed) {
+      const falloff = 1 - clamp((vForward - baseSpeed * 0.75) / Math.max(1, maxSpeed - baseSpeed * 0.75), 0, 1) * 0.75;
+      car.vel.x += forward.x * BOOST_ACCEL * falloff * dt;
+      car.vel.z += forward.z * BOOST_ACCEL * falloff * dt;
+    }
+
+    // Tyre grip bleeds off sideways velocity created by bumps and wall impacts.
+    const lateralNow = car.vel.x * right.x + car.vel.z * right.z;
+    const grip = LATERAL_GRIP * (1 - 0.35 * clamp(speedNow / Math.max(1, maxSpeed), 0, 1));
+    const lateralCorrection = clamp(-lateralNow, -grip * dt, grip * dt);
+    car.vel.x += right.x * lateralCorrection;
+    car.vel.z += right.z * lateralCorrection;
+
+    // Rolling resistance plus aerodynamic drag.
+    const speedAfter = Math.hypot(car.vel.x, car.vel.z);
+    if (speedAfter > 0.0001) {
+      const dragAccel = 0.28 + 0.0021 * speedAfter * speedAfter;
+      const drop = Math.min(speedAfter, dragAccel * dt);
+      car.vel.x -= (car.vel.x / speedAfter) * drop;
+      car.vel.z -= (car.vel.z / speedAfter) * drop;
+    }
+  } else {
+    if (boosting) {
+      car.vel.x += forward.x * BOOST_ACCEL * 0.7 * dt;
+      car.vel.z += forward.z * BOOST_ACCEL * 0.7 * dt;
+    }
+    const airDrag = 1 - Math.min(0.25, 0.12 * dt);
+    car.vel.x *= airDrag;
+    car.vel.z *= airDrag;
+  }
+
+  // Self-propelled speed is capped, but collisions may briefly carry a car faster.
+  const forwardNow = car.vel.x * forward.x + car.vel.z * forward.z;
+  if (forwardNow > maxSpeed + 4) {
+    const over = (forwardNow - maxSpeed - 4) * Math.min(0.4, 1.6 * dt);
+    car.vel.x -= forward.x * over;
+    car.vel.z -= forward.z * over;
+  }
+
+  car.pos.x += car.vel.x * dt;
+  car.pos.z += car.vel.z * dt;
+  clampCarToArena(car);
+  car.speed = car.vel.x * forward.x + car.vel.z * forward.z;
+  car.vy = car.vel.y;
 
   // Detect being wedged against a wall or another car, then reverse out.
   const atWall = Math.abs(car.pos.x) > TARGET_LIMIT_X || Math.abs(car.pos.z) > TARGET_LIMIT_Z;
@@ -970,42 +1103,57 @@ function updateCar(car, dt) {
     car.stuckTimer = 0;
   }
 
-  // Cars only ever drive along their own forward axis — no sideways movement.
-  const cornering = clamp(0.32 + 0.68 * alignment, 0.32, 1);
-  const approachSpeed = Math.min(maxSpeed, Math.max(7, distance * 2.2) * (boosting ? 1.45 : 1));
-  let desiredSpeed = approachSpeed * cornering;
-  if (car.reverseTimer > 0) desiredSpeed = -Math.min(11, maxSpeed * 0.35);
-
-  const changingDirection = Math.sign(desiredSpeed) !== Math.sign(car.speed) && car.speed !== 0;
-  const rate = car.reverseTimer > 0 ? 90 : (changingDirection ? 85 : 48 * (boosting ? 1.7 : 1));
-  car.speed += clamp(desiredSpeed - car.speed, -rate * dt, rate * dt);
-  const minSpeed = car.reverseTimer > 0 ? -Math.min(11, maxSpeed * 0.35) : -8;
-  car.speed = clamp(car.speed, minSpeed, maxSpeed);
-
-  car.pos.addScaledVector(forward, car.speed * dt);
-  car.pos.x = clamp(car.pos.x, -CAR_LIMIT_X, CAR_LIMIT_X);
-  car.pos.z = clamp(car.pos.z, -CAR_LIMIT_Z, CAR_LIMIT_Z);
-
   if (boosting) {
     car.boost = Math.max(0, car.boost - 28 * dt);
     car.flameTimer = 0.12;
   }
   car.boost = clamp(car.boost, 0, BOOST_MAX);
 
-  car.wheels.forEach(wheel => { wheel.rotation.x += Math.abs(car.speed) * dt * 1.6; });
+  // Suspension lean, body roll and wheel rotation for the renderer.
+  const visualAccel = onGround ? throttleAccel + (boosting ? BOOST_ACCEL * 0.6 : 0) : 0;
+  const targetPitch = clamp(visualAccel * 0.006, -0.11, 0.11);
+  const targetRoll = clamp(-car.yawRate * Math.max(0, car.speed) * 0.008, -0.18, 0.18);
+  car.pitch += (targetPitch - car.pitch) * Math.min(1, dt * 7);
+  car.roll += (targetRoll - car.roll) * Math.min(1, dt * 7);
+  car.wheelSpin = (car.wheelSpin + (car.speed / 0.62) * dt) % (Math.PI * 2);
 }
 
 /* ============================== COLLISIONS ============================== */
 
-const CAR_COLLISION_RADIUS = 2.35;
 const CAR_HALF_LENGTH = 2.05;
 const CAR_HALF_WIDTH = 1.45;
-const CAR_HEIGHT = 2.4;
+const CAR_HALF_HEIGHT = 1.2;
+const CAR_HEIGHT = CAR_HALF_HEIGHT * 2;
 const CAR_MASS = 1.5;
-const BALL_MASS = 0.42;
-const BALL_RESTITUTION = 0.8;
-const CAR_RESTITUTION = 0.35;
-const BALL_MAX_SPEED = 80;
+const CAR_YAW_INERTIA = 7.5;
+const BALL_MASS = ball.mass;
+const BALL_RADIUS = ball.radius;
+const BALL_INERTIA = 0.4 * BALL_MASS * BALL_RADIUS * BALL_RADIUS;
+const BALL_MAX_SPEED = 85;
+const CAR_RESTITUTION = 0.28;
+const CAR_BALL_RESTITUTION = 0.58;
+const BALL_WALL_RESTITUTION = 0.68;
+const BALL_GROUND_RESTITUTION = 0.66;
+const BALL_WALL_FRICTION = 0.26;
+const BALL_GROUND_FRICTION = 1.0;
+const ROLLING_RESISTANCE = 0.16;
+const AIR_DRAG = 0.0016;
+const MAGNUS = 0.0022;
+const SPIN_DAMPING = 0.25;
+const WALL_X = HALF_L - ARENA_WALL_INSET;
+const WALL_Z = HALF_W - ARENA_WALL_INSET;
+const CORNER_CENTER_X = HALF_L - CORNER_R;
+const CORNER_CENTER_Z = HALF_W - CORNER_R;
+const GOAL_FRAME_RADIUS = 0.28;
+
+const DRIVE_ACCEL = 16;
+const BRAKE_DECEL = 32;
+const REVERSE_ACCEL = 9;
+const BOOST_ACCEL = 20;
+const LATERAL_GRIP = 20;
+const JUMP_SPEED = 9.0;
+const FLIP_DURATION = 0.55;
+const FLIP_FORWARD_BOOST = 5.5;
 
 function forwardOf(car) {
   return { x: Math.cos(car.heading), z: -Math.sin(car.heading) };
@@ -1015,9 +1163,54 @@ function rightOf(car) {
   return { x: Math.sin(car.heading), z: Math.cos(car.heading) };
 }
 
-function clampCar(car) {
-  car.pos.x = clamp(car.pos.x, -CAR_LIMIT_X, CAR_LIMIT_X);
-  car.pos.z = clamp(car.pos.z, -CAR_LIMIT_Z, CAR_LIMIT_Z);
+function carSupportRadius(car, nx, nz) {
+  const f = forwardOf(car);
+  const r = rightOf(car);
+  return Math.abs(f.x * nx + f.z * nz) * CAR_HALF_LENGTH +
+    Math.abs(r.x * nx + r.z * nz) * CAR_HALF_WIDTH;
+}
+
+function clampCarToArena(car) {
+  const limitX = WALL_X - carSupportRadius(car, 1, 0);
+  const limitZ = WALL_Z - carSupportRadius(car, 0, 1);
+
+  if (car.pos.x > limitX) {
+    car.pos.x = limitX;
+    if (car.vel.x > 0) car.vel.x *= -0.18;
+  } else if (car.pos.x < -limitX) {
+    car.pos.x = -limitX;
+    if (car.vel.x < 0) car.vel.x *= -0.18;
+  }
+  if (car.pos.z > limitZ) {
+    car.pos.z = limitZ;
+    if (car.vel.z > 0) car.vel.z *= -0.18;
+  } else if (car.pos.z < -limitZ) {
+    car.pos.z = -limitZ;
+    if (car.vel.z < 0) car.vel.z *= -0.18;
+  }
+
+  // The four corner walls are quarter cylinders, so use a radial constraint there.
+  if (Math.abs(car.pos.x) > CORNER_CENTER_X && Math.abs(car.pos.z) > CORNER_CENTER_Z) {
+    const cx = Math.sign(car.pos.x) * CORNER_CENTER_X;
+    const cz = Math.sign(car.pos.z) * CORNER_CENTER_Z;
+    const dx = car.pos.x - cx;
+    const dz = car.pos.z - cz;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0.0001) {
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const maxRadius = CORNER_R - ARENA_WALL_INSET - carSupportRadius(car, nx, nz);
+      if (dist > maxRadius) {
+        car.pos.x = cx + nx * maxRadius;
+        car.pos.z = cz + nz * maxRadius;
+        const vn = car.vel.x * nx + car.vel.z * nz;
+        if (vn > 0) {
+          car.vel.x -= nx * vn * 1.18;
+          car.vel.z -= nz * vn * 1.18;
+        }
+      }
+    }
+  }
 }
 
 function resolveCarCarCollisions() {
@@ -1025,142 +1218,235 @@ function resolveCarCarCollisions() {
     for (let j = i + 1; j < cars.length; j++) {
       const a = cars[i];
       const b = cars[j];
-      if (Math.abs(a.y - b.y) > CAR_HEIGHT * 0.85) continue;
+      if (a.y >= b.y + CAR_HEIGHT || b.y >= a.y + CAR_HEIGHT) continue;
+
+      const af = forwardOf(a);
+      const ar = rightOf(a);
+      const bf = forwardOf(b);
+      const br = rightOf(b);
       const dx = b.pos.x - a.pos.x;
       const dz = b.pos.z - a.pos.z;
-      const dist = Math.hypot(dx, dz);
-      const minDist = CAR_COLLISION_RADIUS * 2;
-      if (dist >= minDist) continue;
 
-      let nx = 1;
+      // Separating-axis test on the two oriented car footprints.
+      const axes = [[af.x, af.z], [ar.x, ar.z], [bf.x, bf.z], [br.x, br.z]];
+      let minOverlap = Infinity;
+      let nx = 0;
       let nz = 0;
-      if (dist > 0.0001) {
-        nx = dx / dist;
-        nz = dz / dist;
+      let separated = false;
+
+      for (const [ax, az] of axes) {
+        const centreDistance = dx * ax + dz * az;
+        const overlap = carSupportRadius(a, ax, az) + carSupportRadius(b, ax, az) - Math.abs(centreDistance);
+        if (overlap <= 0) {
+          separated = true;
+          break;
+        }
+        if (overlap < minOverlap) {
+          minOverlap = overlap;
+          const sign = centreDistance >= 0 ? 1 : -1;
+          nx = ax * sign;
+          nz = az * sign;
+        }
+      }
+      if (separated || minOverlap <= 0) continue;
+      if (dx * nx + dz * nz < 0) {
+        nx = -nx;
+        nz = -nz;
       }
 
       // A faster car carries more effective mass, so it bulldozes a slower one
       // while still losing speed itself. Both cars always feel the impact.
       const speedA = Math.abs(a.speed);
       const speedB = Math.abs(b.speed);
-      const speedSum = speedA + speedB + 2;
-      const massA = CAR_MASS * (0.85 + 0.75 * speedA / speedSum);
-      const massB = CAR_MASS * (0.85 + 0.75 * speedB / speedSum);
+      const speedSum = speedA + speedB + 1;
+      const massA = CAR_MASS * (0.9 + 0.5 * speedA / speedSum);
+      const massB = CAR_MASS * (0.9 + 0.5 * speedB / speedSum);
 
-      // Mass-weighted separation: the lighter/slower car is shoved further.
-      const penetration = minDist - dist;
+      const penetration = minOverlap * 0.92;
       const pushA = massB / (massA + massB);
       const pushB = massA / (massA + massB);
       a.pos.x -= nx * penetration * pushA;
       a.pos.z -= nz * penetration * pushA;
       b.pos.x += nx * penetration * pushB;
       b.pos.z += nz * penetration * pushB;
-      clampCar(a);
-      clampCar(b);
+      clampCarToArena(a);
+      clampCarToArena(b);
 
-      const af = forwardOf(a);
-      const bf = forwardOf(b);
-      const closing = (af.x * a.speed - bf.x * b.speed) * nx + (af.z * a.speed - bf.z * b.speed) * nz;
-      if (closing <= 0) continue;
+      // Contact patch near the middle of the overlapping faces.
+      const supportA = carSupportRadius(a, nx, nz);
+      const supportB = carSupportRadius(b, nx, nz);
+      const contactX = (a.pos.x + nx * supportA + b.pos.x - nx * supportB) * 0.5;
+      const contactZ = (a.pos.z + nz * supportA + b.pos.z - nz * supportB) * 0.5;
+      const rax = contactX - a.pos.x;
+      const raz = contactZ - a.pos.z;
+      const rbx = contactX - b.pos.x;
+      const rbz = contactZ - b.pos.z;
 
-      const impulse = ((1 + CAR_RESTITUTION) * closing) / (1 / massA + 1 / massB);
-      const changeA = (impulse * (af.x * nx + af.z * nz)) / massA;
-      const changeB = (impulse * (bf.x * nx + bf.z * nz)) / massB;
-      const knockLimit = Math.max(18, skill.speed * 0.9);
+      const vaX = a.vel.x + a.yawRate * raz;
+      const vaZ = a.vel.z - a.yawRate * rax;
+      const vbX = b.vel.x + b.yawRate * rbz;
+      const vbZ = b.vel.z - b.yawRate * rbx;
+      const relativeX = vbX - vaX;
+      const relativeZ = vbZ - vaZ;
+      const closingSpeed = relativeX * nx + relativeZ * nz;
+      if (closingSpeed >= 0) continue;
 
-      // Signed speeds allow a stationary/slower car to be knocked backwards.
-      a.speed = clamp(a.speed - changeA, -knockLimit, knockLimit);
-      b.speed = clamp(b.speed + changeB, -knockLimit, knockLimit);
+      const raCrossN = rax * nz - raz * nx;
+      const rbCrossN = rbx * nz - rbz * nx;
+      const denominator = 1 / massA + 1 / massB +
+        (raCrossN * raCrossN + rbCrossN * rbCrossN) / CAR_YAW_INERTIA;
+      const impulse = (-(1 + CAR_RESTITUTION) * closingSpeed) / denominator;
+
+      a.vel.x -= (nx * impulse) / massA;
+      a.vel.z -= (nz * impulse) / massA;
+      b.vel.x += (nx * impulse) / massB;
+      b.vel.z += (nz * impulse) / massB;
+      a.yawRate = clamp(a.yawRate - (raCrossN * impulse) / CAR_YAW_INERTIA, -3.5, 3.5);
+      b.yawRate = clamp(b.yawRate + (rbCrossN * impulse) / CAR_YAW_INERTIA, -3.5, 3.5);
+
+      const afNow = forwardOf(a);
+      const bfNow = forwardOf(b);
+      a.speed = a.vel.x * afNow.x + a.vel.z * afNow.z;
+      b.speed = b.vel.x * bfNow.x + b.vel.z * bfNow.z;
     }
   }
 }
 
 function resolveCarBallCollision(car) {
   if (goalLocked) return;
-  const contactRadius = FIELD.ballRadius + 0.06; // small clearance so contacts never register as interpenetration
-  const carBottom = car.y;
-  const carTop = car.y + CAR_HEIGHT;
-  if (ball.pos.y - contactRadius > carTop || ball.pos.y + contactRadius < carBottom) return;
 
-  const forward = forwardOf(car);
-  const right = rightOf(car);
-  const dx = ball.pos.x - car.pos.x;
-  const dz = ball.pos.z - car.pos.z;
+  const f = forwardOf(car);
+  const r = rightOf(car);
+  const centreY = car.y + CAR_HALF_HEIGHT;
+  const rx = ball.pos.x - car.pos.x;
+  const ry = ball.pos.y - centreY;
+  const rz = ball.pos.z - car.pos.z;
 
-  // Ball in the car's local frame (local X = nose direction, local Z = side).
-  const localX = dx * forward.x + dz * forward.z;
-  const localZ = dx * right.x + dz * right.z;
-  if (Math.abs(localX) > CAR_HALF_LENGTH + contactRadius || Math.abs(localZ) > CAR_HALF_WIDTH + contactRadius) return;
-
+  // Ball position in the car's oriented box (local X = nose, Y = up, Z = side).
+  const localX = rx * f.x + rz * f.z;
+  const localY = ry;
+  const localZ = rx * r.x + rz * r.z;
   const clampedX = clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH);
+  const clampedY = clamp(localY, -CAR_HALF_HEIGHT, CAR_HALF_HEIGHT);
   const clampedZ = clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH);
-  const offsetX = localX - clampedX;
-  const offsetZ = localZ - clampedZ;
-  const offsetLength = Math.hypot(offsetX, offsetZ);
 
-  let nx;
-  let nz;
+  const offsetX = localX - clampedX;
+  const offsetY = localY - clampedY;
+  const offsetZ = localZ - clampedZ;
+  const distance = Math.hypot(offsetX, offsetY, offsetZ);
+  if (distance >= BALL_RADIUS) return;
+
+  let localNormalX = 0;
+  let localNormalY = 0;
+  let localNormalZ = 0;
   let penetration;
 
-  if (offsetLength > 0.0001) {
-    if (offsetLength >= contactRadius) return;
-    penetration = contactRadius - offsetLength;
-    nx = (forward.x * offsetX + right.x * offsetZ) / offsetLength;
-    nz = (forward.z * offsetX + right.z * offsetZ) / offsetLength;
-  } else if (Math.abs(localX) > Math.abs(localZ) * (CAR_HALF_LENGTH / CAR_HALF_WIDTH)) {
-    const sign = localX >= 0 ? 1 : -1;
-    nx = forward.x * sign;
-    nz = forward.z * sign;
-    penetration = CAR_HALF_LENGTH - Math.abs(localX) + contactRadius;
+  if (distance > 0.0001) {
+    localNormalX = offsetX / distance;
+    localNormalY = offsetY / distance;
+    localNormalZ = offsetZ / distance;
+    penetration = BALL_RADIUS - distance;
   } else {
-    const sign = localZ >= 0 ? 1 : -1;
-    nx = right.x * sign;
-    nz = right.z * sign;
-    penetration = CAR_HALF_WIDTH - Math.abs(localZ) + contactRadius;
+    // Ball centre is inside the box: eject through the nearest face.
+    const faceX = CAR_HALF_LENGTH - Math.abs(localX);
+    const faceY = CAR_HALF_HEIGHT - Math.abs(localY);
+    const faceZ = CAR_HALF_WIDTH - Math.abs(localZ);
+    if (faceX <= faceY && faceX <= faceZ) {
+      localNormalX = localX >= 0 ? 1 : -1;
+      penetration = BALL_RADIUS + faceX;
+    } else if (faceY <= faceZ) {
+      localNormalY = localY >= 0 ? 1 : -1;
+      penetration = BALL_RADIUS + faceY;
+    } else {
+      localNormalZ = localZ >= 0 ? 1 : -1;
+      penetration = BALL_RADIUS + faceZ;
+    }
   }
 
-  // Hard separation: the ball can never remain inside a car or vice versa.
+  const nx = f.x * localNormalX + r.x * localNormalZ;
+  const ny = localNormalY;
+  const nz = f.z * localNormalX + r.z * localNormalZ;
+
+  // Hard separation: no contact can ever leave the ball inside the bodywork.
   ball.pos.x += nx * penetration;
+  ball.pos.y += ny * penetration;
   ball.pos.z += nz * penetration;
-  car.pos.x -= nx * penetration * 0.18;
-  car.pos.z -= nz * penetration * 0.18;
-  clampCar(car);
+  car.pos.x -= nx * penetration * 0.08;
+  car.pos.z -= nz * penetration * 0.08;
+  clampCarToArena(car);
 
   if (car.cooldown > 0) return;
 
-  const carVelX = forward.x * car.speed;
-  const carVelZ = forward.z * car.speed;
-  const approach = -((ball.vel.x - carVelX) * nx + (ball.vel.z - carVelZ) * nz);
-  if (approach <= 0.6) return;
+  const contactX = car.pos.x + f.x * clampedX + r.x * clampedZ;
+  const contactY = centreY + clampedY;
+  const contactZ = car.pos.z + f.z * clampedX + r.z * clampedZ;
+  const rax = contactX - car.pos.x;
+  const raz = contactZ - car.pos.z;
+  const carPointVX = car.vel.x + car.yawRate * raz;
+  const carPointVZ = car.vel.z - car.yawRate * rax;
 
-  car.cooldown = 0.4 + (1 - skill.accuracy) * 0.45;
+  const relativeX = ball.vel.x - carPointVX;
+  const relativeY = ball.vel.y - car.vel.y;
+  const relativeZ = ball.vel.z - carPointVZ;
+  const approach = relativeX * nx + relativeY * ny + relativeZ * nz;
+  if (approach > -0.25) return;
 
-  const impulse = ((1 + BALL_RESTITUTION) * approach) / (1 / CAR_MASS + 1 / BALL_MASS);
+  car.cooldown = 0.38 + (1 - skill.accuracy) * 0.42;
+
   const whiffed = Math.random() < skill.whiff;
-  const effectiveImpulse = whiffed ? impulse * 0.12 : impulse;
+  const restitution = whiffed ? 0.08 : CAR_BALL_RESTITUTION;
+  const raCrossN = raz * nx - rax * nz;
+  const denominator = 1 / BALL_MASS + 1 / CAR_MASS + (raCrossN * raCrossN) / CAR_YAW_INERTIA;
+  const impulse = (-(1 + restitution) * approach) / denominator;
+  const effectiveImpulse = whiffed ? impulse * 0.18 : impulse;
 
-  // Base momentum transfer from the actual impact.
   ball.vel.x += (nx * effectiveImpulse) / BALL_MASS;
+  ball.vel.y += (ny * effectiveImpulse) / BALL_MASS;
   ball.vel.z += (nz * effectiveImpulse) / BALL_MASS;
-  car.speed = Math.max(0, car.speed - (effectiveImpulse * (nx * forward.x + nz * forward.z)) / CAR_MASS);
+  car.vel.x -= (nx * effectiveImpulse) / CAR_MASS;
+  car.vel.z -= (nz * effectiveImpulse) / CAR_MASS;
+  car.yawRate = clamp(car.yawRate - (raCrossN * effectiveImpulse) / CAR_YAW_INERTIA, -4, 4);
+
+  // Tangential friction turns glancing hits into realistic spin.
+  const tangentX = relativeX - nx * approach;
+  const tangentY = relativeY - ny * approach;
+  const tangentZ = relativeZ - nz * approach;
+  const tangentSpeed = Math.hypot(tangentX, tangentY, tangentZ);
+  if (!whiffed && tangentSpeed > 0.001) {
+    const jt = Math.min(0.45 * impulse, (tangentSpeed * BALL_MASS) / 3.5);
+    const ux = tangentX / tangentSpeed;
+    const uy = tangentY / tangentSpeed;
+    const uz = tangentZ / tangentSpeed;
+    ball.vel.x -= (ux * jt) / BALL_MASS;
+    ball.vel.y -= (uy * jt) / BALL_MASS;
+    ball.vel.z -= (uz * jt) / BALL_MASS;
+    const bx = -nx * BALL_RADIUS;
+    const by = -ny * BALL_RADIUS;
+    const bz = -nz * BALL_RADIUS;
+    const ix = -ux * jt;
+    const iy = -uy * jt;
+    const iz = -uz * jt;
+    ball.spin.x += (by * iz - bz * iy) / BALL_INERTIA;
+    ball.spin.y += (bz * ix - bx * iz) / BALL_INERTIA;
+    ball.spin.z += (bx * iy - by * ix) / BALL_INERTIA;
+  }
 
   if (!whiffed) {
-    const attackX = car.team === 'blue' ? HALF_L : -HALF_L;
-    const aim = new THREE.Vector3(attackX, 0, rand(-FIELD.goalHalf * 0.8, FIELD.goalHalf * 0.8)).sub(ball.pos).normalize();
-    const hitDirection = new THREE.Vector3(forward.x, 0, forward.z).multiplyScalar(0.55);
-    hitDirection.x += nx * 0.45;
-    hitDirection.z += nz * 0.45;
-    hitDirection.lerp(aim, skill.accuracy * 0.55).normalize();
-    hitDirection.x += rand(-skill.spread, skill.spread);
-    hitDirection.z += rand(-skill.spread, skill.spread);
-    hitDirection.y = skill.loft * rand(0.15, 1) + (ball.pos.y > 2 ? 0.2 : 0);
-    hitDirection.normalize();
-
-    const transferredSpeed = car.speed * (0.7 + skill.power * 0.005) + skill.power * 0.2 + rand(0, 4);
-    ball.vel.lerp(hitDirection.multiplyScalar(Math.max(transferredSpeed, ball.vel.length())), 0.78);
-    ball.pos.y = Math.max(ball.pos.y, FIELD.ballRadius + 0.25);
-    car.flameTimer = 0.22;
-    ballGlow.intensity = 1.6;
+    // Skill still shapes the touch: better players add purposeful power and spin.
+    const aim = new THREE.Vector3(
+      (car.team === 'blue' ? HALF_L : -HALF_L) + rand(-3, 3),
+      0,
+      rand(-FIELD.goalHalf * 0.65, FIELD.goalHalf * 0.65)
+    ).sub(ball.pos);
+    aim.y = 0;
+    if (aim.lengthSq() > 0.001) aim.normalize();
+    const touch = skill.power * (0.1 + skill.accuracy * 0.3);
+    ball.vel.x += aim.x * touch + rand(-skill.spread, skill.spread) * 2;
+    ball.vel.z += aim.z * touch + rand(-skill.spread, skill.spread) * 2;
+    ball.vel.y += skill.loft * 7 + Math.max(0, ball.pos.y - CAR_HEIGHT) * 0.35;
+    ball.spin.y += rand(-2.5, 2.5) * (1 - skill.accuracy * 0.5);
+    car.flameTimer = Math.max(car.flameTimer, 0.14);
+    ballGlow.intensity = 1.5;
 
     if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
       addCommentary('He actually made clean contact! Don\'t get used to it.');
@@ -1169,24 +1455,27 @@ function resolveCarBallCollision(car) {
     addCommentary('Mistimed challenge — only a glancing touch.');
   }
 
-  const horizontalSpeed = Math.hypot(ball.vel.x, ball.vel.z);
-  if (horizontalSpeed > BALL_MAX_SPEED) {
-    const scale = BALL_MAX_SPEED / horizontalSpeed;
-    ball.vel.x *= scale;
-    ball.vel.z *= scale;
-  }
+  if (ball.spin.lengthSq() > 2025) ball.spin.setLength(45);
+  const speed = ball.vel.length();
+  if (speed > BALL_MAX_SPEED) ball.vel.multiplyScalar(BALL_MAX_SPEED / speed);
+
+  const cf = forwardOf(car);
+  car.speed = car.vel.x * cf.x + car.vel.z * cf.z;
 }
 
 function syncTransforms() {
   cars.forEach(car => {
     car.mesh.position.set(car.pos.x, car.y, car.pos.z);
-    car.mesh.rotation.set(0, car.heading, car.flipAngle);
+    car.mesh.rotation.set(0, car.heading, 0);
+    car.chassis.rotation.set(car.roll, 0, car.flipAngle + car.pitch);
+    car.chassis.position.y = -car.landImpact * 0.18;
+    car.wheels.forEach((wheel, index) => {
+      wheel.rotation.y = index < 2 ? car.steerAngle : 0;
+      wheel.rotation.z = car.wheelSpin;
+    });
+    const f = forwardOf(car);
+    car.speed = car.vel.x * f.x + car.vel.z * f.z;
   });
-  if (!goalLocked) {
-    const inMouth = Math.abs(ball.pos.z) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
-    if (!inMouth) ball.pos.x = clamp(ball.pos.x, -BALL_LIMIT_X, BALL_LIMIT_X);
-    ball.pos.z = clamp(ball.pos.z, -BALL_LIMIT_Z, BALL_LIMIT_Z);
-  }
   ballMesh.position.copy(ball.pos);
   ballGlow.position.copy(ball.pos);
 }
@@ -1220,6 +1509,165 @@ function updateBoostPads(dt) {
   }
 }
 
+function resolveBallStaticContact(nx, ny, nz, penetration, restitution, friction) {
+  if (penetration <= 0) return;
+  ball.pos.x += nx * penetration;
+  ball.pos.y += ny * penetration;
+  ball.pos.z += nz * penetration;
+
+  const normalSpeed = ball.vel.x * nx + ball.vel.y * ny + ball.vel.z * nz;
+  if (normalSpeed >= 0) return;
+
+  // Surface velocity at the contact point, including spin.
+  const bx = -nx * BALL_RADIUS;
+  const by = -ny * BALL_RADIUS;
+  const bz = -nz * BALL_RADIUS;
+  const contactX = ball.vel.x + (ball.spin.y * bz - ball.spin.z * by);
+  const contactY = ball.vel.y + (ball.spin.z * bx - ball.spin.x * bz);
+  const contactZ = ball.vel.z + (ball.spin.x * by - ball.spin.y * bx);
+  const contactNormal = contactX * nx + contactY * ny + contactZ * nz;
+  const tangentX = contactX - nx * contactNormal;
+  const tangentY = contactY - ny * contactNormal;
+  const tangentZ = contactZ - nz * contactNormal;
+  const tangentSpeed = Math.hypot(tangentX, tangentY, tangentZ);
+
+  const normalImpulse = -(1 + restitution) * normalSpeed * BALL_MASS;
+  ball.vel.x += (nx * normalImpulse) / BALL_MASS;
+  ball.vel.y += (ny * normalImpulse) / BALL_MASS;
+  ball.vel.z += (nz * normalImpulse) / BALL_MASS;
+
+  if (tangentSpeed > 1e-4 && friction > 0) {
+    const frictionImpulse = Math.min(friction * normalImpulse, (tangentSpeed * BALL_MASS) / 3.5);
+    const ux = tangentX / tangentSpeed;
+    const uy = tangentY / tangentSpeed;
+    const uz = tangentZ / tangentSpeed;
+    ball.vel.x -= (ux * frictionImpulse) / BALL_MASS;
+    ball.vel.y -= (uy * frictionImpulse) / BALL_MASS;
+    ball.vel.z -= (uz * frictionImpulse) / BALL_MASS;
+
+    // Friction at the ball surface converts tangential slip into spin.
+    const ix = -ux * frictionImpulse;
+    const iy = -uy * frictionImpulse;
+    const iz = -uz * frictionImpulse;
+    ball.spin.x += (by * iz - bz * iy) / BALL_INERTIA;
+    ball.spin.y += (bz * ix - bx * iz) / BALL_INERTIA;
+    ball.spin.z += (bx * iy - by * ix) / BALL_INERTIA;
+  }
+}
+
+function collideBallGround(dt) {
+  if (ball.pos.y > BALL_RADIUS) return;
+
+  const impactSpeed = -ball.vel.y;
+  const restitution = impactSpeed > 1.1 ? BALL_GROUND_RESTITUTION : 0;
+  // Tangential friction is handled below using the true contact-point velocity.
+  resolveBallStaticContact(0, 1, 0, BALL_RADIUS - ball.pos.y, restitution, 0);
+
+  // Rolling contact: friction drives the surface slip to zero, then a small
+  // rolling resistance lets the ball coast for a very long time.
+  const slipX = ball.vel.x + ball.spin.z * BALL_RADIUS;
+  const slipZ = ball.vel.z - ball.spin.x * BALL_RADIUS;
+  const slipSpeed = Math.hypot(slipX, slipZ);
+  if (slipSpeed > 1e-4) {
+    const maxImpulse = BALL_GROUND_FRICTION * BALL_MASS * GRAVITY * dt;
+    const neededImpulse = (slipSpeed * BALL_MASS) / 3.5;
+    const frictionImpulse = Math.min(maxImpulse, neededImpulse);
+    const ux = slipX / slipSpeed;
+    const uz = slipZ / slipSpeed;
+    ball.vel.x -= (ux * frictionImpulse) / BALL_MASS;
+    ball.vel.z -= (uz * frictionImpulse) / BALL_MASS;
+    const jx = -ux * frictionImpulse;
+    const jz = -uz * frictionImpulse;
+    ball.spin.x += (-BALL_RADIUS * jz) / BALL_INERTIA;
+    ball.spin.z += (BALL_RADIUS * jx) / BALL_INERTIA;
+  }
+
+  const horizontalSpeed = Math.hypot(ball.vel.x, ball.vel.z);
+  if (horizontalSpeed > 0.001) {
+    const drop = Math.min(horizontalSpeed, ROLLING_RESISTANCE * dt);
+    ball.vel.x -= (ball.vel.x / horizontalSpeed) * drop;
+    ball.vel.z -= (ball.vel.z / horizontalSpeed) * drop;
+    ball.resting = horizontalSpeed < 0.05;
+  } else {
+    ball.resting = true;
+  }
+  ball.spin.y *= Math.pow(0.6, dt);
+}
+
+function collideBallGoalFrame() {
+  const collisionRadius = BALL_RADIUS + GOAL_FRAME_RADIUS;
+  for (const side of [-1, 1]) {
+    const goalX = side * HALF_L;
+
+    // Posts: vertical cylinders that stop shots clipping through the frame.
+    for (const postZ of [-FIELD.goalHalf, FIELD.goalHalf]) {
+      if (ball.pos.y - BALL_RADIUS > FIELD.goalHeight + GOAL_FRAME_RADIUS) continue;
+      const dx = ball.pos.x - goalX;
+      const dz = ball.pos.z - postZ;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.0001 && dist < collisionRadius) {
+        resolveBallStaticContact(dx / dist, 0, dz / dist, collisionRadius - dist, 0.72, 0.2);
+      }
+    }
+
+    // Crossbar: horizontal cylinder across the mouth.
+    if (Math.abs(ball.pos.z) < FIELD.goalHalf + collisionRadius) {
+      const dx = ball.pos.x - goalX;
+      const dy = ball.pos.y - FIELD.goalHeight;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.0001 && dist < collisionRadius) {
+        resolveBallStaticContact(dx / dist, dy / dist, 0, collisionRadius - dist, 0.72, 0.2);
+      }
+    }
+  }
+}
+
+function collideBallArena() {
+  const r = BALL_RADIUS;
+
+  // Flat side walls, stopping where the rounded corner arcs begin.
+  if (Math.abs(ball.pos.x) <= CORNER_CENTER_X) {
+    if (ball.pos.z > WALL_Z - r) {
+      resolveBallStaticContact(0, 0, -1, ball.pos.z - (WALL_Z - r), BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    } else if (ball.pos.z < -WALL_Z + r) {
+      resolveBallStaticContact(0, 0, 1, (-WALL_Z + r) - ball.pos.z, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    }
+  }
+
+  // End walls, with the goal mouth left open below the crossbar.
+  if (Math.abs(ball.pos.z) <= CORNER_CENTER_Z) {
+    const goalOpen = Math.abs(ball.pos.z) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
+    if (!goalOpen) {
+      if (ball.pos.x > WALL_X - r) {
+        resolveBallStaticContact(-1, 0, 0, ball.pos.x - (WALL_X - r), BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+      } else if (ball.pos.x < -WALL_X + r) {
+        resolveBallStaticContact(1, 0, 0, (-WALL_X + r) - ball.pos.x, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+      }
+    }
+  }
+
+  // Rounded corner walls.
+  if (Math.abs(ball.pos.x) > CORNER_CENTER_X && Math.abs(ball.pos.z) > CORNER_CENTER_Z) {
+    const cx = Math.sign(ball.pos.x) * CORNER_CENTER_X;
+    const cz = Math.sign(ball.pos.z) * CORNER_CENTER_Z;
+    const dx = ball.pos.x - cx;
+    const dz = ball.pos.z - cz;
+    const dist = Math.hypot(dx, dz);
+    const maxRadius = CORNER_R - ARENA_WALL_INSET - r;
+    if (dist > maxRadius && dist > 0.0001) {
+      resolveBallStaticContact(-dx / dist, 0, -dz / dist, dist - maxRadius, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    }
+  }
+
+  // Invisible ceiling above the arena.
+  if (ball.pos.y > CEILING_Y - r) {
+    resolveBallStaticContact(0, -1, 0, ball.pos.y - (CEILING_Y - r), 0.6, 0.1);
+  }
+}
+
+const spinAxis = new THREE.Vector3();
+const spinQuat = new THREE.Quaternion();
+
 function updateBall(dt) {
   if (goalLocked) {
     ballMesh.position.copy(ball.pos);
@@ -1227,73 +1675,55 @@ function updateBall(dt) {
     return;
   }
 
-  const airborne = ball.pos.y > FIELD.ballRadius + 0.02;
-  ball.vel.y -= 42 * dt;
+  ball.vel.y -= GRAVITY * dt;
 
-  // Very low rolling resistance on the carpet, minimal drag in the air.
-  const groundFriction = Math.pow(0.68, dt);
-  const airDrag = Math.pow(0.94, dt);
-  const drag = airborne ? airDrag : groundFriction;
-  ball.vel.x *= drag;
-  ball.vel.z *= drag;
+  // Quadratic aerodynamic drag.
+  const speed = ball.vel.length();
+  if (speed > 0.001) {
+    const dragAccel = AIR_DRAG * speed * speed;
+    const drop = Math.min(speed, dragAccel * dt);
+    ball.vel.multiplyScalar((speed - drop) / speed);
+  }
+
+  // Magnus effect: spin curves the flight path.
+  if (ball.spin.lengthSq() > 0.05) {
+    const mx = ball.spin.y * ball.vel.z - ball.spin.z * ball.vel.y;
+    const my = ball.spin.z * ball.vel.x - ball.spin.x * ball.vel.z;
+    const mz = ball.spin.x * ball.vel.y - ball.spin.y * ball.vel.x;
+    ball.vel.x += mx * MAGNUS * dt;
+    ball.vel.y += my * MAGNUS * dt;
+    ball.vel.z += mz * MAGNUS * dt;
+  }
+  // Only airborne spin decays to drag; rolling spin is managed by ground friction.
+  if (ball.pos.y > BALL_RADIUS + 0.02) {
+    ball.spin.multiplyScalar(Math.exp(-SPIN_DAMPING * dt));
+  }
 
   ball.pos.addScaledVector(ball.vel, dt);
 
-  if (ball.pos.y < FIELD.ballRadius) {
-    ball.pos.y = FIELD.ballRadius;
-    ball.vel.y = Math.abs(ball.vel.y) * 0.74;
-    if (ball.vel.y < 1.1) ball.vel.y = 0;
-  }
+  collideBallGround(dt);
+  collideBallGoalFrame();
+  collideBallArena();
 
-  // Solid goal frame — the ball cannot slip through posts or the crossbar.
   if (!goalLocked) {
-    const frameRadius = FIELD.ballRadius + 0.28;
-    for (const side of [-1, 1]) {
-      const postX = side * HALF_L;
-      for (const postZ of [-FIELD.goalHalf, FIELD.goalHalf]) {
-        const dx = ball.pos.x - postX;
-        const dz = ball.pos.z - postZ;
-        const dist = Math.hypot(dx, dz);
-        if (ball.pos.y < FIELD.goalHeight + frameRadius && dist > 0.0001 && dist < frameRadius) {
-          const nx = dx / dist;
-          const nz = dz / dist;
-          ball.pos.x = postX + nx * frameRadius;
-          ball.pos.z = postZ + nz * frameRadius;
-          const normalSpeed = ball.vel.x * nx + ball.vel.z * nz;
-          if (normalSpeed < 0) {
-            ball.vel.x -= 1.8 * normalSpeed * nx;
-            ball.vel.z -= 1.8 * normalSpeed * nz;
-          }
-        }
-      }
-      const barX = ball.pos.x - postX;
-      if (Math.abs(barX) < frameRadius && Math.abs(ball.pos.z) < FIELD.goalHalf && Math.abs(ball.pos.y - FIELD.goalHeight) < frameRadius) {
-        const ny = ball.pos.y >= FIELD.goalHeight ? 1 : -1;
-        ball.pos.y = FIELD.goalHeight + ny * frameRadius;
-        if (ball.vel.y * ny < 0) ball.vel.y *= -0.8;
-      }
+    const inGoalMouth = Math.abs(ball.pos.z) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
+    if (inGoalMouth) {
+      if (ball.pos.x - BALL_RADIUS > HALF_L) scoreGoal('blue');
+      else if (ball.pos.x + BALL_RADIUS < -HALF_L) scoreGoal('orange');
     }
   }
 
-  const ballX = ball.pos.x;
-  const ballZ = ball.pos.z;
-  const inGoalMouth = Math.abs(ballZ) < FIELD.goalHalf && ball.pos.y < FIELD.goalHeight;
-
-  if (inGoalMouth) {
-    if (ballX > HALF_L) scoreGoal('blue');
-    else if (ballX < -HALF_L) scoreGoal('orange');
-  } else {
-    if (ballX > BALL_LIMIT_X) { ball.pos.x = BALL_LIMIT_X; ball.vel.x = -Math.abs(ball.vel.x) * 0.86; }
-    if (ballX < -BALL_LIMIT_X) { ball.pos.x = -BALL_LIMIT_X; ball.vel.x = Math.abs(ball.vel.x) * 0.86; }
+  if (ball.vel.lengthSq() > BALL_MAX_SPEED * BALL_MAX_SPEED) {
+    ball.vel.setLength(BALL_MAX_SPEED);
   }
-  if (ballZ > BALL_LIMIT_Z) { ball.pos.z = BALL_LIMIT_Z; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
-  if (ballZ < -BALL_LIMIT_Z) { ball.pos.z = -BALL_LIMIT_Z; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
-  if (ball.pos.y > 52) { ball.pos.y = 52; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
 
   ballMesh.position.copy(ball.pos);
-  const rollRate = 1 / FIELD.ballRadius;
-  ballMesh.rotation.x += ball.vel.z * rollRate * dt;
-  ballMesh.rotation.z -= ball.vel.x * rollRate * dt;
+  const spinRate = ball.spin.length();
+  if (spinRate > 1e-5) {
+    spinAxis.copy(ball.spin).multiplyScalar(1 / spinRate);
+    spinQuat.setFromAxisAngle(spinAxis, spinRate * dt);
+    ballMesh.quaternion.premultiply(spinQuat);
+  }
   ballGlow.position.copy(ball.pos);
   ballGlow.intensity += (0.45 - ballGlow.intensity) * Math.min(1, dt * 5);
 }
@@ -1327,14 +1757,13 @@ function step(dt) {
   }
 
   // Substepping keeps fast cars and the ball from tunnelling through each other.
-  const substeps = 4;
-  const subDt = dt / substeps;
-  for (let i = 0; i < substeps; i++) {
+  const subDt = dt / PHYSICS_SUBSTEPS;
+  for (let i = 0; i < PHYSICS_SUBSTEPS; i++) {
     cars.forEach(car => updateCar(car, subDt));
     updateBall(subDt);
     if (!goalLocked) {
-      // A few solver passes settle car↔car and car↔ball constraints together.
-      for (let solver = 0; solver < 5; solver++) {
+      // Iterative solver settles car↔car and car↔ball constraints together.
+      for (let solver = 0; solver < SOLVER_ITERATIONS; solver++) {
         resolveCarCarCollisions();
         cars.forEach(car => resolveCarBallCollision(car));
       }
@@ -1518,23 +1947,162 @@ function animate(now) {
   }
 }
 
+function carOverlapDepth(a, b) {
+  if (a.y >= b.y + CAR_HEIGHT || b.y >= a.y + CAR_HEIGHT) return 0;
+  const af = forwardOf(a);
+  const ar = rightOf(a);
+  const bf = forwardOf(b);
+  const br = rightOf(b);
+  const dx = b.pos.x - a.pos.x;
+  const dz = b.pos.z - a.pos.z;
+  const axes = [[af.x, af.z], [ar.x, ar.z], [bf.x, bf.z], [br.x, br.z]];
+  let minOverlap = Infinity;
+  for (const [ax, az] of axes) {
+    const overlap = carSupportRadius(a, ax, az) + carSupportRadius(b, ax, az) -
+      Math.abs(dx * ax + dz * az);
+    if (overlap <= 0) return 0;
+    if (overlap < minOverlap) minOverlap = overlap;
+  }
+  return minOverlap;
+}
+
 window.__rl3d = {
-  get ball() { return { x: ball.pos.x, y: ball.pos.y, z: ball.pos.z, vx: ball.vel.x, vz: ball.vel.z }; },
-  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, role: c.role, kickoffRole: c.kickoffRole, x: c.pos.x, y: c.y, z: c.pos.z, heading: c.heading, speed: c.speed, boost: +c.boost.toFixed(1), boosting: c.boostHold > 0 && c.boost > 0, airborne: c.airborne, flipping: c.flipTimer > 0, flipAngle: c.flipAngle, reversing: c.reverseTimer > 0, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
-  forceStuck(index) { cars[index].speed = 0; cars[index].stuckTimer = 1; },
+  get ball() {
+    return {
+      x: ball.pos.x, y: ball.pos.y, z: ball.pos.z,
+      vx: ball.vel.x, vy: ball.vel.y, vz: ball.vel.z,
+      spinX: ball.spin.x, spinY: ball.spin.y, spinZ: ball.spin.z,
+      speed: ball.vel.length()
+    };
+  },
+  get cars() {
+    return cars.map(c => {
+      const t = chooseTarget(c);
+      const f = forwardOf(c);
+      return {
+        team: c.team, role: c.role, kickoffRole: c.kickoffRole,
+        x: c.pos.x, y: c.y, z: c.pos.z, heading: c.heading,
+        vx: c.vel.x, vy: c.vel.y, vz: c.vel.z,
+        speed: c.vel.x * f.x + c.vel.z * f.z,
+        yawRate: c.yawRate, steer: c.steerAngle,
+        boost: +c.boost.toFixed(1), boosting: c.boostHold > 0 && c.boost > 0,
+        airborne: c.airborne, flipping: c.flipTimer > 0, flipAngle: c.flipAngle,
+        reversing: c.reverseTimer > 0,
+        targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z
+      };
+    });
+  },
+  forceStuck(index) {
+    cars[index].vel.x = 0;
+    cars[index].vel.z = 0;
+    cars[index].speed = 0;
+    cars[index].stuckTimer = 1;
+  },
   forceFlip(index) {
     const car = cars[index];
     const f = forwardOf(car);
     car.flipDir.set(f.x, 0, f.z);
-    car.flipTimer = 0.55;
-    car.vy = 19;
+    car.flipTimer = FLIP_DURATION;
+    car.flipRate = -(Math.PI * 2) / FLIP_DURATION;
+    car.flipAngle = 0;
+    car.vel.x += f.x * FLIP_FORWARD_BOOST;
+    car.vel.z += f.z * FLIP_FORWARD_BOOST;
+    car.vel.y = JUMP_SPEED;
     car.airborne = true;
   },
   forceCarCollision(indexA, indexB, speedA, speedB, headingB = 0) {
     const a = cars[indexA];
     const b = cars[indexB];
-    a.pos.set(0, 0, 0); a.y = 0; a.heading = 0; a.speed = speedA;
-    b.pos.set(2.0, 0, 0); b.y = 0; b.heading = headingB; b.speed = speedB;
+    a.pos.set(0, 0, 0); a.y = 0; a.heading = 0; a.yawRate = 0;
+    a.vel.set(speedA, 0, 0); a.speed = speedA;
+    b.pos.set(2.0, 0, 0); b.y = 0; b.heading = headingB; b.yawRate = 0;
+    b.vel.set(Math.cos(headingB) * speedB, 0, -Math.sin(headingB) * speedB); b.speed = speedB;
+    syncTransforms();
+  },
+  startPlay() {
+    kickoffTimer = 0;
+    kickoffPhase = 0;
+    goalTimer = 0;
+    goalLocked = false;
+    matchState = 'PLAYING';
+    clock = 180;
+  },
+  simulate(seconds) {
+    const frames = Math.max(1, Math.round(seconds * 60));
+    for (let i = 0; i < frames; i++) step(1 / 60);
+    syncTransforms();
+    return { frames, state: matchState, score: { blue: scoreBlue, orange: scoreOrange, clock } };
+  },
+  audit(seconds) {
+    const frames = Math.max(1, Math.round(seconds * 60));
+    const startBlue = scoreBlue;
+    const startOrange = scoreOrange;
+    let maxCarOverlap = 0;
+    let maxBallPenetration = 0;
+    let maxCarSpeed = 0;
+    let maxBallSpeed = 0;
+    let nan = false;
+    for (let i = 0; i < frames; i++) {
+      step(1 / 60);
+      for (let a = 0; a < cars.length; a++) {
+        for (let b = a + 1; b < cars.length; b++) {
+          maxCarOverlap = Math.max(maxCarOverlap, carOverlapDepth(cars[a], cars[b]));
+        }
+        const car = cars[a];
+        const f = forwardOf(car);
+        const r = rightOf(car);
+        const centreY = car.y + CAR_HALF_HEIGHT;
+        const dx = ball.pos.x - car.pos.x;
+        const dy = ball.pos.y - centreY;
+        const dz = ball.pos.z - car.pos.z;
+        const localX = dx * f.x + dz * f.z;
+        const localY = dy;
+        const localZ = dx * r.x + dz * r.z;
+        const edge = Math.hypot(
+          localX - clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH),
+          localY - clamp(localY, -CAR_HALF_HEIGHT, CAR_HALF_HEIGHT),
+          localZ - clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH)
+        );
+        maxBallPenetration = Math.max(maxBallPenetration, BALL_RADIUS - edge);
+        maxCarSpeed = Math.max(maxCarSpeed, Math.hypot(car.vel.x, car.vel.z));
+      }
+      maxBallSpeed = Math.max(maxBallSpeed, ball.vel.length());
+      if (!isFinite(ball.pos.x + ball.pos.y + ball.pos.z + ball.vel.x + ball.vel.y + ball.vel.z)) nan = true;
+    }
+    return {
+      frames,
+      goals: (scoreBlue - startBlue) + (scoreOrange - startOrange),
+      score: { blue: scoreBlue, orange: scoreOrange, clock },
+      maxCarOverlap: +maxCarOverlap.toFixed(3),
+      maxBallPenetration: +maxBallPenetration.toFixed(3),
+      maxCarSpeed: +maxCarSpeed.toFixed(1),
+      maxBallSpeed: +maxBallSpeed.toFixed(1),
+      nan,
+      state: matchState
+    };
+  },
+  setBall(x, y, z, vx = 0, vy = 0, vz = 0, spinX = 0, spinY = 0, spinZ = 0) {
+    ball.pos.set(x, y, z);
+    ball.vel.set(vx, vy, vz);
+    ball.spin.set(spinX, spinY, spinZ);
+    ball.resting = false;
+    syncTransforms();
+  },
+  setCar(index, x, z, heading, speed, boost) {
+    const car = cars[index];
+    car.pos.set(x, 0, z);
+    car.y = 0;
+    car.heading = heading;
+    car.vel.set(Math.cos(heading) * speed, 0, -Math.sin(heading) * speed);
+    car.speed = speed;
+    car.vy = 0;
+    car.yawRate = 0;
+    car.airborne = false;
+    car.flipTimer = 0;
+    car.flipAngle = 0;
+    car.flipRate = 0;
+    car.cooldown = 0;
+    if (typeof boost === 'number') car.boost = boost;
     syncTransforms();
   },
   teleportCar(index, x, z, boost) {
@@ -1542,8 +2110,13 @@ window.__rl3d = {
     car.pos.set(x, 0, z);
     car.y = 0;
     car.vy = 0;
+    car.vel.set(0, 0, 0);
     car.airborne = false;
+    car.flipTimer = 0;
+    car.flipAngle = 0;
+    car.flipRate = 0;
     car.speed = 0;
+    car.yawRate = 0;
     car.boostHold = 0;
     car.flameTimer = 0;
     if (typeof boost === 'number') car.boost = boost;
@@ -1562,34 +2135,40 @@ window.__rl3d = {
     const carPairs = [];
     for (let i = 0; i < cars.length; i++) {
       for (let j = i + 1; j < cars.length; j++) {
-        const distance = Math.hypot(cars[j].pos.x - cars[i].pos.x, cars[j].pos.z - cars[i].pos.z);
+        const overlap = carOverlapDepth(cars[i], cars[j]);
         carPairs.push({
           pair: i + '-' + j,
-          distance: +distance.toFixed(2),
-          minDistance: +(CAR_COLLISION_RADIUS * 2).toFixed(2),
-          overlapping: distance < CAR_COLLISION_RADIUS * 2 - 0.01 && Math.abs(cars[i].y - cars[j].y) <= CAR_HEIGHT * 0.85
+          distance: +Math.hypot(cars[j].pos.x - cars[i].pos.x, cars[j].pos.z - cars[i].pos.z).toFixed(2),
+          overlap: +overlap.toFixed(2),
+          overlapping: overlap > 0.01
         });
       }
     }
     const ballContacts = cars.map((car, index) => {
       const f = forwardOf(car);
       const r = rightOf(car);
+      const centreY = car.y + CAR_HALF_HEIGHT;
       const dx = ball.pos.x - car.pos.x;
+      const dy = ball.pos.y - centreY;
       const dz = ball.pos.z - car.pos.z;
       const localX = dx * f.x + dz * f.z;
+      const localY = dy;
       const localZ = dx * r.x + dz * r.z;
-      const edge = Math.hypot(localX - clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH), localZ - clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH));
+      const edge = Math.hypot(
+        localX - clamp(localX, -CAR_HALF_LENGTH, CAR_HALF_LENGTH),
+        localY - clamp(localY, -CAR_HALF_HEIGHT, CAR_HALF_HEIGHT),
+        localZ - clamp(localZ, -CAR_HALF_WIDTH, CAR_HALF_WIDTH)
+      );
       return {
         car: index,
-        gap: +(edge - FIELD.ballRadius).toFixed(2),
-        overlapping: edge - FIELD.ballRadius < -0.01 &&
-          ball.pos.y - FIELD.ballRadius <= car.y + CAR_HEIGHT &&
-          ball.pos.y + FIELD.ballRadius >= car.y
+        gap: +(edge - BALL_RADIUS).toFixed(2),
+        overlapping: edge - BALL_RADIUS < -0.01
       };
     });
     return { carPairs, ballContacts };
   },
-  get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; }
+  get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; },
+  get state() { return matchState; }
 };
 
 applySkillUI();
