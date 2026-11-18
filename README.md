@@ -23,7 +23,7 @@ No build step, no dependencies, no framework — just HTML, CSS and JavaScript.
 - **Achievements** — 15 milestones tracking your climb.
 - **Leaderboard** — a simulated global ladder based around your MMR.
 - **Saves** — automatic localStorage saves, plus export/import and reset in Settings.
-- **3D match viewer** — a fully simulated 3D arena with detailed stadium, crowd, floodlights, cars and ball physics. At Bronze level the rookie is slow, misreads the play and whiffs constantly; at Pro League he is fast, accurate and clinical. Open it from **Matches → Watch in 3D**, or visit `match3d.html?tier=bronze`.
+- **3D match viewer** — a fully simulated 3D arena with detailed stadium, crowd, floodlights and five camera modes. Cars use forward-only steering with speed-sensitive turning; ball impacts transfer momentum based on car speed, with low rolling friction so it carries for ages. At Bronze level the rookie is slow, misreads the play and whiffs constantly; at Pro League he is fast, accurate and clinical. Open it from **Matches → Watch in 3D**, or visit `match3d.html?tier=bronze`.
 
 ## Game loop
 
@@ -41,7 +41,6 @@ A season lasts 40 weeks. When it ends, the season counter increments and your ca
 - `styles.css` — dark neon UI, responsive layout
 - `game.js` — all game state, simulation and rendering logic
 - `match3d.html` / `match3d.js` / `match3d.css` — the 3D match viewer (Three.js)
-- `reference-stadium.png` — supplied stadium reference, used as the arena backdrop texture
 - `vendor/three.module.js` — vendored Three.js so the 3D viewer works offline
 
 ## Hosting

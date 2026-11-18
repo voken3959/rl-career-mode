@@ -128,18 +128,23 @@ const fillLight = new THREE.DirectionalLight(0x4f8dff, 0.65);
 fillLight.position.set(-70, 60, -50);
 scene.add(fillLight);
 
-/* ============================== BACKDROP FROM YOUR IMAGE ============================== */
+/* ============================== SKY ============================== */
 
-const backdropTexture = new THREE.TextureLoader().load('./reference-stadium.png');
-backdropTexture.colorSpace = THREE.SRGBColorSpace;
-backdropTexture.wrapS = THREE.RepeatWrapping;
-backdropTexture.repeat.set(2, 1);
-const backdrop = new THREE.Mesh(
-  new THREE.CylinderGeometry(330, 330, 170, 72, 1, true),
-  new THREE.MeshBasicMaterial({ map: backdropTexture, side: THREE.BackSide, fog: false })
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(700, 32, 16),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      topColor: { value: new THREE.Color(0x05070f) },
+      bottomColor: { value: new THREE.Color(0x1b1420) }
+    },
+    vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 topColor; uniform vec3 bottomColor; varying vec3 vPos; void main(){ float h = normalize(vPos).y * 0.5 + 0.5; gl_FragColor = vec4(mix(bottomColor, topColor, h), 1.0); }'
+  })
 );
-backdrop.position.y = 58;
-scene.add(backdrop);
+scene.add(sky);
 
 /* ============================== FIELD ============================== */
 
@@ -619,7 +624,7 @@ function createCar(team, isPlayer) {
     wheels,
     flame,
     pos: new THREE.Vector3(),
-    vel: new THREE.Vector3(),
+    speed: 0,
     heading: 0,
     cooldown: 0,
     flameTimer: 0,
@@ -667,7 +672,7 @@ function resetPositions(message) {
   cars.forEach((car, index) => {
     const start = starts[index];
     car.pos.set(start.x, 0, start.z);
-    car.vel.set(0, 0, 0);
+    car.speed = 0;
     car.heading = start.heading;
     car.cooldown = 0;
     car.flameTimer = 0;
@@ -744,26 +749,38 @@ function updateCar(car, dt) {
   toTarget.y = 0;
   const distance = toTarget.length();
 
+  let difference = 0;
   if (distance > 0.1) {
     const desiredHeading = Math.atan2(toTarget.x, toTarget.z);
-    const difference = angleDelta(car.heading, desiredHeading);
-    const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92);
-    car.heading += clamp(difference, -turnRate * dt, turnRate * dt);
+    difference = angleDelta(car.heading, desiredHeading);
+    const turnRate = skill.turn * (car.isPlayer ? 1 : 0.92) * (1 - Math.min(0.42, (car.speed / Math.max(1, skill.speed * 1.45)) * 0.38));
+    const steerInput = clamp(difference / 0.42, -1, 1);
+    car.heading += steerInput * turnRate * dt;
     car.heading = Math.atan2(Math.sin(car.heading), Math.cos(car.heading));
   }
 
-  const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
-  const wantsBoost = distance > 18 && car.boost > 0 && Math.random() < skill.boost * dt * 2;
+  const alignment = Math.cos(difference);
+  const wantsBoost = distance > 18 && alignment > 0.75 && car.boost > 0 && Math.random() < skill.boost * dt * 2;
   const boosting = wantsBoost || car.flameTimer > 0;
   const baseSpeed = skill.speed * (car.isPlayer ? 1 : 0.96);
   const maxSpeed = baseSpeed * (boosting ? 1.45 : 1);
 
-  const speedCap = Math.min(maxSpeed, Math.max(5, distance * 2.4));
-  const desiredVelocity = toTarget.lengthSq() > 0 ? toTarget.clone().normalize().multiplyScalar(speedCap) : new THREE.Vector3();
-  car.vel.lerp(desiredVelocity, clamp((boosting ? 2.6 : 1.9) * dt, 0, 1));
-  if (car.vel.length() > maxSpeed) car.vel.setLength(maxSpeed);
+  const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
 
-  car.pos.addScaledVector(car.vel, dt);
+  // Cars only ever drive along their own forward axis — no sideways movement.
+  // Slow down while turning so the steering circle actually converges on the target.
+  const cornering = clamp(0.32 + 0.68 * alignment, 0.32, 1);
+  const approachSpeed = Math.min(maxSpeed, Math.max(7, distance * 2.2));
+  const desiredSpeed = approachSpeed * cornering;
+  const acceleration = 48 * (boosting ? 1.7 : 1);
+  if (car.speed < desiredSpeed) {
+    car.speed = Math.min(desiredSpeed, car.speed + acceleration * dt);
+  } else {
+    car.speed = Math.max(desiredSpeed, car.speed - 78 * dt);
+  }
+  car.speed = clamp(car.speed, 0, maxSpeed);
+
+  car.pos.addScaledVector(forward, car.speed * dt);
   car.pos.x = clamp(car.pos.x, -48.5, 48.5);
   car.pos.z = clamp(car.pos.z, -31.5, 31.5);
 
@@ -776,36 +793,55 @@ function updateCar(car, dt) {
 
   car.mesh.position.copy(car.pos);
   car.mesh.rotation.y = car.heading;
-  car.wheels.forEach(wheel => { wheel.rotation.x += car.vel.length() * dt * 1.6; });
+  car.wheels.forEach(wheel => { wheel.rotation.x += car.speed * dt * 1.6; });
 
   const ballDistance = Math.hypot(car.pos.x - ball.pos.x, car.pos.z - ball.pos.z);
   const maxHitHeight = 3.6 + skill.loft * 5;
-  if (ballDistance < 3.5 && ball.pos.y < maxHitHeight && car.cooldown <= 0) {
-    car.cooldown = 0.45 + (1 - skill.accuracy) * 0.5;
+  if (ballDistance < 3.3 && ball.pos.y < maxHitHeight && car.cooldown <= 0) {
+    car.cooldown = 0.4 + (1 - skill.accuracy) * 0.45;
+
+    const contactNormal = new THREE.Vector3(ball.pos.x - car.pos.x, 0, ball.pos.z - car.pos.z);
+    if (contactNormal.lengthSq() < 0.0001) contactNormal.copy(forward);
+    contactNormal.normalize();
+
+    const carVelocity = forward.clone().multiplyScalar(car.speed);
+    const approach = -ball.vel.clone().sub(carVelocity).dot(contactNormal);
+
+    // Only the closing speed transfers into the ball: faster car = harder hit.
+    if (approach <= 0.8) return;
 
     if (Math.random() < skill.whiff) {
       if (car.isPlayer && Math.random() < 0.18) {
         addCommentary('The rookie swings at nothing. That whiff sums up Bronze.');
       }
-      ball.vel.x += rand(-2, 2);
-      ball.vel.z += rand(-2, 2);
       return;
     }
 
+    const carMass = 1.5;
+    const ballMass = 0.42;
+    const restitution = 0.8;
+    const impulse = ((1 + restitution) * approach) / (1 / carMass + 1 / ballMass);
+
     const attackX = car.team === 'blue' ? 50 : -50;
     const aim = new THREE.Vector3(attackX, 0, rand(-FIELD.goalHalf * 0.8, FIELD.goalHalf * 0.8)).sub(ball.pos).normalize();
-    const direction = forward.clone().lerp(aim, skill.accuracy).normalize();
-    direction.x += rand(-skill.spread, skill.spread);
-    direction.z += rand(-skill.spread, skill.spread);
-    direction.y = skill.loft * rand(0.2, 1) + (ball.pos.y > 2 ? 0.25 : 0);
-    direction.normalize();
 
-    const power = skill.power + rand(0, 7);
-    ball.vel.copy(direction.multiplyScalar(power));
-    ball.pos.y = Math.max(ball.pos.y, FIELD.ballRadius + 0.35);
+    const hitDirection = forward.clone().multiplyScalar(0.55).add(contactNormal.clone().multiplyScalar(0.45)).normalize();
+    hitDirection.lerp(aim, skill.accuracy * 0.55).normalize();
+    hitDirection.x += rand(-skill.spread, skill.spread);
+    hitDirection.z += rand(-skill.spread, skill.spread);
+    hitDirection.y = skill.loft * rand(0.15, 1) + (ball.pos.y > 2 ? 0.2 : 0);
+    hitDirection.normalize();
+
+    const transferredSpeed = car.speed * (0.7 + skill.power * 0.005) + skill.power * 0.2 + rand(0, 4);
+    ball.vel.addScaledVector(contactNormal, (impulse * 0.4) / ballMass);
+    ball.vel.lerp(hitDirection.clone().multiplyScalar(Math.max(transferredSpeed, ball.vel.length())), 0.78);
+
+    ball.pos.y = Math.max(ball.pos.y, FIELD.ballRadius + 0.25);
+    car.speed = Math.max(0, car.speed - (impulse / carMass) * 0.1);
     car.flameTimer = 0.22;
+    ballGlow.intensity = 1.6;
 
-    if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
+    if (car.isPlayer && skillKey === 'bronze' && car.speed < 14 && Math.random() < 0.12) {
       addCommentary('He actually made clean contact! Don\'t get used to it.');
     }
   }
@@ -818,15 +854,22 @@ function updateBall(dt) {
     return;
   }
 
+  const airborne = ball.pos.y > FIELD.ballRadius + 0.02;
   ball.vel.y -= 42 * dt;
+
+  // Very low rolling resistance on the carpet, minimal drag in the air.
+  const groundFriction = Math.pow(0.68, dt);
+  const airDrag = Math.pow(0.94, dt);
+  const drag = airborne ? airDrag : groundFriction;
+  ball.vel.x *= drag;
+  ball.vel.z *= drag;
+
   ball.pos.addScaledVector(ball.vel, dt);
 
   if (ball.pos.y < FIELD.ballRadius) {
     ball.pos.y = FIELD.ballRadius;
-    ball.vel.y = Math.abs(ball.vel.y) * 0.7;
-    ball.vel.x *= 0.985;
-    ball.vel.z *= 0.985;
-    if (ball.vel.y < 1.4) ball.vel.y = 0;
+    ball.vel.y = Math.abs(ball.vel.y) * 0.74;
+    if (ball.vel.y < 1.1) ball.vel.y = 0;
   }
 
   const ballX = ball.pos.x;
@@ -838,17 +881,19 @@ function updateBall(dt) {
   } else if (ballX < -50 && inGoalMouth) {
     scoreGoal('orange');
   } else {
-    if (ballX > 49.2) { ball.pos.x = 49.2; ball.vel.x = -Math.abs(ball.vel.x) * 0.78; }
-    if (ballX < -49.2) { ball.pos.x = -49.2; ball.vel.x = Math.abs(ball.vel.x) * 0.78; }
-    if (ballZ > 32.2) { ball.pos.z = 32.2; ball.vel.z = -Math.abs(ball.vel.z) * 0.78; }
-    if (ballZ < -32.2) { ball.pos.z = -32.2; ball.vel.z = Math.abs(ball.vel.z) * 0.78; }
-    if (ball.pos.y > 45) { ball.pos.y = 45; ball.vel.y = -Math.abs(ball.vel.y) * 0.7; }
+    if (ballX > 49.2) { ball.pos.x = 49.2; ball.vel.x = -Math.abs(ball.vel.x) * 0.86; }
+    if (ballX < -49.2) { ball.pos.x = -49.2; ball.vel.x = Math.abs(ball.vel.x) * 0.86; }
+    if (ballZ > 32.2) { ball.pos.z = 32.2; ball.vel.z = -Math.abs(ball.vel.z) * 0.86; }
+    if (ballZ < -32.2) { ball.pos.z = -32.2; ball.vel.z = Math.abs(ball.vel.z) * 0.86; }
+    if (ball.pos.y > 45) { ball.pos.y = 45; ball.vel.y = -Math.abs(ball.vel.y) * 0.72; }
   }
 
   ballMesh.position.copy(ball.pos);
-  ballMesh.rotation.x += ball.vel.z * dt * 0.25;
-  ballMesh.rotation.z -= ball.vel.x * dt * 0.25;
+  const rollRate = 1 / FIELD.ballRadius;
+  ballMesh.rotation.x += ball.vel.z * rollRate * dt;
+  ballMesh.rotation.z -= ball.vel.x * rollRate * dt;
   ballGlow.position.copy(ball.pos);
+  ballGlow.intensity += (0.45 - ballGlow.intensity) * Math.min(1, dt * 5);
 }
 
 function step(dt) {
@@ -1039,7 +1084,7 @@ function animate(now) {
 
 window.__rl3d = {
   get ball() { return { x: ball.pos.x, y: ball.pos.y, z: ball.pos.z, vx: ball.vel.x, vz: ball.vel.z }; },
-  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, x: c.pos.x, z: c.pos.z, heading: c.heading, speed: c.vel.length(), targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
+  get cars() { return cars.map(c => { const t = chooseTarget(c); return { team: c.team, x: c.pos.x, z: c.pos.z, heading: c.heading, speed: c.speed, targetX: t.x, targetZ: t.z, errorX: c.targetError.x, errorZ: c.targetError.z }; }); },
   get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; }
 };
 
