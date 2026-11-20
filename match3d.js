@@ -44,6 +44,9 @@ const HALF_L = FIELD.length / 2;
 const HALF_W = FIELD.width / 2;
 const CORNER_R = FIELD.cornerRadius;
 const GRAVITY = 9.81;
+// The ball falls heavier than the cars: it keeps its driven ground speed but
+// drops out of the air quickly instead of hanging like a beach ball.
+const BALL_GRAVITY = 14.2;
 const PHYSICS_SUBSTEPS = 8;
 const SOLVER_ITERATIONS = 6;
 const CEILING_Y = 52;
@@ -1185,13 +1188,13 @@ const BALL_MAX_SPEED = 85;
 const CAR_RESTITUTION = 0.28;
 const CAR_BALL_RESTITUTION = 0.58;
 const BALL_WALL_RESTITUTION = 0.68;
-const BALL_GROUND_RESTITUTION = 0.66;
+const BALL_GROUND_RESTITUTION = 0.54;
 const BALL_WALL_FRICTION = 0.26;
 const BALL_GROUND_FRICTION = 1.0;
 const ROLLING_RESISTANCE = 0.16;
 const AIR_DRAG = 0.0016;
-const MAGNUS = 0.0022;
-const SPIN_DAMPING = 0.25;
+const MAGNUS = 0.0019;
+const SPIN_DAMPING = 0.32;
 const WALL_X = HALF_L - ARENA_WALL_INSET;
 const WALL_Z = HALF_W - ARENA_WALL_INSET;
 const CORNER_CENTER_X = HALF_L - CORNER_R;
@@ -1453,9 +1456,14 @@ function resolveCarBallCollision(car) {
   const impulse = (-(1 + restitution) * approach) / denominator;
   const effectiveImpulse = whiffed ? impulse * 0.18 : impulse;
 
-  ball.vel.x += (nx * effectiveImpulse) / BALL_MASS;
-  ball.vel.y += (ny * effectiveImpulse) / BALL_MASS;
-  ball.vel.z += (nz * effectiveImpulse) / BALL_MASS;
+  // A front flip should not launch the ball like a trampoline: the nose-down
+  // rotation eats a little of the transfer instead of adding free speed.
+  const flipTouch = car.flipTimer > 0;
+  const ballImpulse = effectiveImpulse * (flipTouch ? 0.8 : 1);
+
+  ball.vel.x += (nx * ballImpulse) / BALL_MASS;
+  ball.vel.y += (ny * ballImpulse) / BALL_MASS;
+  ball.vel.z += (nz * ballImpulse) / BALL_MASS;
   car.vel.x -= (nx * effectiveImpulse) / CAR_MASS;
   car.vel.z -= (nz * effectiveImpulse) / CAR_MASS;
   car.yawRate = clamp(car.yawRate - (raCrossN * effectiveImpulse) / CAR_YAW_INERTIA, -4, 4);
@@ -1496,7 +1504,7 @@ function resolveCarBallCollision(car) {
     const touch = skill.power * (0.1 + skill.accuracy * 0.3);
     ball.vel.x += aim.x * touch + rand(-skill.spread, skill.spread) * 2;
     ball.vel.z += aim.z * touch + rand(-skill.spread, skill.spread) * 2;
-    ball.vel.y += skill.loft * 7 + Math.max(0, ball.pos.y - CAR_HEIGHT) * 0.35;
+    ball.vel.y += skill.loft * 4 + Math.max(0, ball.pos.y - CAR_HEIGHT) * 0.2;
     ball.spin.y += rand(-2.5, 2.5) * (1 - skill.accuracy * 0.5);
     car.flameTimer = Math.max(car.flameTimer, 0.14);
     ballGlow.intensity = 1.5;
@@ -1627,7 +1635,7 @@ function collideBallGround(dt) {
   const slipZ = ball.vel.z - ball.spin.x * BALL_RADIUS;
   const slipSpeed = Math.hypot(slipX, slipZ);
   if (slipSpeed > 1e-4) {
-    const maxImpulse = BALL_GROUND_FRICTION * BALL_MASS * GRAVITY * dt;
+    const maxImpulse = BALL_GROUND_FRICTION * BALL_MASS * BALL_GRAVITY * dt;
     const neededImpulse = (slipSpeed * BALL_MASS) / 3.5;
     const frictionImpulse = Math.min(maxImpulse, neededImpulse);
     const ux = slipX / slipSpeed;
@@ -1733,7 +1741,7 @@ function updateBall(dt) {
     return;
   }
 
-  ball.vel.y -= GRAVITY * dt;
+  ball.vel.y -= BALL_GRAVITY * dt;
 
   // Quadratic aerodynamic drag.
   const speed = ball.vel.length();
