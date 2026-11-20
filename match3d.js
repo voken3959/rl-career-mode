@@ -3,15 +3,15 @@ import * as THREE from 'three';
 /* ============================== CONFIG ============================== */
 
 const SKILLS = {
-  bronze:        { label: 'BRONZE',        color: '#cd7f32', speed: 20, turn: 1.8, whiff: 0.45, accuracy: 0.18, spread: 0.55, power: 24, loft: 0.04, reaction: 0.65, boost: 0.2,  desc: 'Low speed, poor reads, frequent whiffs. The rookie is out of his depth.' },
-  silver:        { label: 'SILVER',        color: '#c8d2de', speed: 23, turn: 2.1, whiff: 0.34, accuracy: 0.30, spread: 0.40, power: 28, loft: 0.08, reaction: 0.50, boost: 0.3,  desc: 'Faster, but still loses track of the ball in the scrum.' },
-  gold:          { label: 'GOLD',          color: '#ffd54a', speed: 26, turn: 2.4, whiff: 0.24, accuracy: 0.43, spread: 0.30, power: 32, loft: 0.12, reaction: 0.40, boost: 0.4,  desc: 'Can keep possession and finds the net more often than not.' },
-  platinum:      { label: 'PLATINUM',      color: '#7fe3ff', speed: 29, turn: 2.7, whiff: 0.16, accuracy: 0.55, spread: 0.22, power: 36, loft: 0.18, reaction: 0.32, boost: 0.5,  desc: 'Solid rotations, cleaner hits, fewer basic mistakes.' },
-  diamond:       { label: 'DIAMOND',       color: '#5aa9ff', speed: 32, turn: 3.0, whiff: 0.11, accuracy: 0.66, spread: 0.16, power: 40, loft: 0.24, reaction: 0.25, boost: 0.6,  desc: 'Confident in the air and dangerous in the final third.' },
-  champion:      { label: 'CHAMPION',      color: '#b06bff', speed: 35, turn: 3.2, whiff: 0.07, accuracy: 0.76, spread: 0.11, power: 44, loft: 0.30, reaction: 0.20, boost: 0.7,  desc: 'Fast, clinical and rarely gives the ball away.' },
-  grandchampion: { label: 'GRAND CHAMPION',color: '#ff5fa2', speed: 37, turn: 3.4, whiff: 0.04, accuracy: 0.85, spread: 0.07, power: 47, loft: 0.36, reaction: 0.16, boost: 0.8,  desc: 'Elite mechanics and near-perfect decision making.' },
-  ssl:           { label: 'SUPERSONIC',    color: '#ff8a3d', speed: 39, turn: 3.6, whiff: 0.02, accuracy: 0.92, spread: 0.04, power: 50, loft: 0.42, reaction: 0.12, boost: 0.9,  desc: 'Flip resets, ceiling shots and laser-guided passing.' },
-  pro:           { label: 'PRO LEAGUE',    color: '#ffd700', speed: 41, turn: 3.8, whiff: 0.01, accuracy: 0.97, spread: 0.02, power: 54, loft: 0.48, reaction: 0.09, boost: 1.0,  desc: 'RLCS-level play. Every touch has a purpose.' }
+  bronze:        { label: 'BRONZE',        color: '#cd7f32', speed: 20, turn: 1.8, whiff: 0.45, accuracy: 0.18, reaction: 0.65, boost: 0.2,  desc: 'Low speed, poor reads, frequent whiffs. The rookie is out of his depth.' },
+  silver:        { label: 'SILVER',        color: '#c8d2de', speed: 23, turn: 2.1, whiff: 0.34, accuracy: 0.30, reaction: 0.50, boost: 0.3,  desc: 'Faster, but still loses track of the ball in the scrum.' },
+  gold:          { label: 'GOLD',          color: '#ffd54a', speed: 26, turn: 2.4, whiff: 0.24, accuracy: 0.43, reaction: 0.40, boost: 0.4,  desc: 'Can keep possession and finds the net more often than not.' },
+  platinum:      { label: 'PLATINUM',      color: '#7fe3ff', speed: 29, turn: 2.7, whiff: 0.16, accuracy: 0.55, reaction: 0.32, boost: 0.5,  desc: 'Solid rotations, cleaner hits, fewer basic mistakes.' },
+  diamond:       { label: 'DIAMOND',       color: '#5aa9ff', speed: 32, turn: 3.0, whiff: 0.11, accuracy: 0.66, reaction: 0.25, boost: 0.6,  desc: 'Confident in the air and dangerous in the final third.' },
+  champion:      { label: 'CHAMPION',      color: '#b06bff', speed: 35, turn: 3.2, whiff: 0.07, accuracy: 0.76, reaction: 0.20, boost: 0.7,  desc: 'Fast, clinical and rarely gives the ball away.' },
+  grandchampion: { label: 'GRAND CHAMPION',color: '#ff5fa2', speed: 37, turn: 3.4, whiff: 0.04, accuracy: 0.85, reaction: 0.16, boost: 0.8,  desc: 'Elite mechanics and near-perfect decision making.' },
+  ssl:           { label: 'SUPERSONIC',    color: '#ff8a3d', speed: 39, turn: 3.6, whiff: 0.02, accuracy: 0.92, reaction: 0.12, boost: 0.9,  desc: 'Flip resets, ceiling shots and laser-guided passing.' },
+  pro:           { label: 'PRO LEAGUE',    color: '#ffd700', speed: 41, turn: 3.8, whiff: 0.01, accuracy: 0.97, reaction: 0.09, boost: 1.0,  desc: 'RLCS-level play. Every touch has a purpose.' }
 };
 
 const params = new URLSearchParams(location.search);
@@ -651,7 +651,7 @@ function createCar(team, isPlayer) {
     wheel.position.set(x, 0.62, z);
     wheel.rotation.order = 'YXZ';
     wheel.castShadow = true;
-    group.add(wheel);
+    chassis.add(wheel);
     wheels.push(wheel);
   });
 
@@ -715,6 +715,7 @@ function createCar(team, isPlayer) {
     hitQuality: 1,
     flameTimer: 0,
     targetError: new THREE.Vector3(),
+    targetSmooth: new THREE.Vector3(),
     reactionTimer: 0,
     boost: 33,
     boostHold: 0,
@@ -747,6 +748,9 @@ const ball = {
   resting: false
 };
 const lastTouch = { team: null, car: null, time: -999, speed: 0 };
+const pinchContacts = [];
+let pinchCount = 0;
+let lastPinch = null;
 let scoreBlue = 0;
 let scoreOrange = 0;
 let clock = 180;
@@ -802,6 +806,7 @@ function resetPositions(message) {
     car.boostHold = 0;
     car.reactionTimer = 0;
     car.targetError.set(0, 0, 0);
+    car.targetSmooth.copy(car.pos);
     car.role = index % 2 === 0 ? 'attack' : 'support';
     car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
     car.mesh.position.set(start.x, 0, start.z);
@@ -912,9 +917,47 @@ function chooseTarget(car) {
     // The non-taker breaks wide instead of swarming the centre spot.
     target.set(ownGoalX * 0.5, 0, car.index === 1 ? -28 : 28);
   } else if (car.role === 'attack') {
-    // Run at the ball's future position instead of chasing its shadow.
-    const lead = clamp((car.pos.distanceTo(ball.pos) - 3.5) / 55, 0, 0.55);
-    futureBallPosition(lead, target);
+    // Pick a spot in the opponent net, then approach the ball from behind
+    // that line. The contact geometry sends the ball there instead of a
+    // scripted force, so an angled approach produces an angled shot.
+    const goalX = car.team === 'blue' ? HALF_L : -HALF_L;
+    const lead = clamp((car.pos.distanceTo(ball.pos) - 3.5) / 55, 0, 0.5);
+    const bx = ball.pos.x + ball.vel.x * lead;
+    const bz = ball.pos.z + ball.vel.z * lead;
+    // Aim across the net at the far post so the shot line is never a straight
+    // run down the middle. The car still has to earn the angle by getting
+    // behind the ball; nothing redirects the ball after contact.
+    const farPost = (bz >= 0 ? -1 : 1) * (FIELD.goalHalf - 2.2);
+    const aimZ = clamp(farPost + bz * 0.08, -6.5, 6.5);
+    const shotX = goalX - bx;
+    const shotZ = aimZ - bz;
+    const shotLength = Math.hypot(shotX, shotZ) || 1;
+    const sx = shotX / shotLength;
+    const sz = shotZ / shotLength;
+    const px = -sz;
+    const pz = sx;
+    const relX = car.pos.x - bx;
+    const relZ = car.pos.z - bz;
+    const along = relX * sx + relZ * sz;
+    const side = relX * px + relZ * pz;
+    const ballGap = Math.hypot(relX, relZ);
+    const sideSign = Math.abs(side) < 0.5 ? (car.index % 2 === 0 ? 1 : -1) : Math.sign(side);
+
+    if ((along < -0.5 && Math.abs(side) < 4 && ballGap < 18) || ballGap < 6) {
+      // Drive through the ball slightly off its centre line so the contact
+      // deflects it left or right naturally instead of a dead-straight hit.
+      const glance = sideSign * 1.2;
+      target.set(bx + sx * 16 + px * glance, 0, bz + sz * 16 + pz * glance);
+    } else {
+      // Swing around to the back of the ball on the side already occupied.
+      const route = clamp((along + 2) / 10, 0, 1);
+      const depth = 5.5 + route * 4;
+      target.set(
+        bx - sx * depth + px * sideSign * (2.5 + route * 6),
+        0,
+        bz - sz * depth + pz * sideSign * (2.5 + route * 6)
+      );
+    }
   } else {
     const mateZ = mate ? mate.pos.z : 0;
     const side = car.pos.z === mateZ
@@ -966,7 +1009,10 @@ function updateCar(car, dt) {
   car.boostHold = Math.max(0, car.boostHold - dt);
   car.flame.visible = car.flameTimer > 0;
 
-  const target = chooseTarget(car);
+  const rawTarget = chooseTarget(car);
+  if (car.targetSmooth.lengthSq() === 0) car.targetSmooth.copy(rawTarget);
+  car.targetSmooth.lerp(rawTarget, Math.min(1, dt * 5));
+  const target = car.targetSmooth;
   const toTarget = new THREE.Vector3().subVectors(target, car.pos);
   toTarget.y = 0;
   const distance = toTarget.length();
@@ -1029,9 +1075,9 @@ function updateCar(car, dt) {
   const wallEscape = againstWall && speedAbs < 5 && !car.airborne;
   const steerAuthority = car.airborne ? 0.16 : 0.55 + 0.45 * clamp(speedAbs / 8, 0, 1);
   const turnScale = 1 - speedRatio * 0.38;
-  const targetYaw = clamp(difference / 0.45, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
-    steerAuthority * turnScale * (wallEscape ? 2.2 : 1);
-  const yawAccel = car.airborne ? 5 : (wallEscape ? 26 : 15);
+  const targetYaw = clamp(difference / 0.55, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
+    steerAuthority * turnScale * (wallEscape ? 2.0 : 1);
+  const yawAccel = car.airborne ? 4 : (wallEscape ? 20 : 11);
   car.yawRate += clamp(targetYaw - car.yawRate, -yawAccel * dt, yawAccel * dt);
   car.yawRate = clamp(car.yawRate, -6, 6);
   car.heading += car.yawRate * dt;
@@ -1085,7 +1131,7 @@ function updateCar(car, dt) {
   if (car.reverseTimer > 0) {
     throttleAccel = -REVERSE_ACCEL;
   } else if (Math.abs(speedError) > 0.15) {
-    throttleAccel = clamp(speedError * 5.5, -BRAKE_DECEL, DRIVE_ACCEL);
+    throttleAccel = clamp(speedError * 4.2, -BRAKE_DECEL, DRIVE_ACCEL);
     // Never add drive above top speed, but still brake hard when the next
     // touch is behind us or the car is carrying too much speed into a turn.
     if (vForward > maxSpeed && throttleAccel > 0) throttleAccel = 0;
@@ -1205,7 +1251,7 @@ const DRIVE_ACCEL = 16;
 const BRAKE_DECEL = 32;
 const REVERSE_ACCEL = 9;
 const BOOST_ACCEL = 20;
-const LATERAL_GRIP = 110;
+const LATERAL_GRIP = 78;
 const LATERAL_SLIDE_GRIP = 26;
 const JUMP_SPEED = 9.0;
 const FLIP_DURATION = 0.55;
@@ -1460,6 +1506,9 @@ function resolveCarBallCollision(car) {
   // rotation eats a little of the transfer instead of adding free speed.
   const flipTouch = car.flipTimer > 0;
   const ballImpulse = effectiveImpulse * (flipTouch ? 0.8 : 1);
+  const contactSpeed = Math.hypot(car.vel.x, car.vel.z);
+  const contactVX = car.vel.x;
+  const contactVZ = car.vel.z;
 
   ball.vel.x += (nx * ballImpulse) / BALL_MASS;
   ball.vel.y += (ny * ballImpulse) / BALL_MASS;
@@ -1493,18 +1542,8 @@ function resolveCarBallCollision(car) {
   }
 
   if (!whiffed) {
-    // Skill still shapes the touch: better players add purposeful power and spin.
-    const aim = new THREE.Vector3(
-      (car.team === 'blue' ? HALF_L : -HALF_L) + rand(-3, 3),
-      0,
-      rand(-FIELD.goalHalf * 0.65, FIELD.goalHalf * 0.65)
-    ).sub(ball.pos);
-    aim.y = 0;
-    if (aim.lengthSq() > 0.001) aim.normalize();
-    const touch = skill.power * (0.1 + skill.accuracy * 0.3);
-    ball.vel.x += aim.x * touch + rand(-skill.spread, skill.spread) * 2;
-    ball.vel.z += aim.z * touch + rand(-skill.spread, skill.spread) * 2;
-    ball.vel.y += skill.loft * 4 + Math.max(0, ball.pos.y - CAR_HEIGHT) * 0.2;
+    // The contact itself decides where the ball goes: no scripted aim force.
+    // Better players start from a cleaner approach angle and hit harder.
     ball.spin.y += rand(-2.5, 2.5) * (1 - skill.accuracy * 0.5);
     car.flameTimer = Math.max(car.flameTimer, 0.14);
     ballGlow.intensity = 1.5;
@@ -1520,6 +1559,18 @@ function resolveCarBallCollision(car) {
   const speed = ball.vel.length();
   if (speed > BALL_MAX_SPEED) ball.vel.multiplyScalar(BALL_MAX_SPEED / speed);
 
+  if (!whiffed) {
+    pinchContacts.push({
+      car: car.index,
+      nx, ny, nz,
+      speed: contactSpeed,
+      vx: contactVX,
+      vz: contactVZ,
+      time: elapsed,
+      pinched: false
+    });
+  }
+
   lastTouch.team = car.team;
   lastTouch.car = car.index;
   lastTouch.time = elapsed;
@@ -1527,6 +1578,49 @@ function resolveCarBallCollision(car) {
 
   const cf = forwardOf(car);
   car.speed = car.vel.x * cf.x + car.vel.z * cf.z;
+}
+
+// Two cars meeting on opposite sides of the ball squeeze it upward. The pop
+// comes from the contact speeds alone, so it is identical at every rank.
+function resolveBallPinch() {
+  for (let i = pinchContacts.length - 1; i >= 0; i--) {
+    if (elapsed - pinchContacts[i].time > 0.05) pinchContacts.splice(i, 1);
+  }
+  if (pinchContacts.length < 2) return;
+  for (let i = 0; i < pinchContacts.length; i++) {
+    const a = pinchContacts[i];
+    if (a.pinched || Math.abs(a.ny) > 0.6) continue;
+    for (let j = i + 1; j < pinchContacts.length; j++) {
+      const b = pinchContacts[j];
+      if (b.pinched || b.car === a.car || Math.abs(b.ny) > 0.6) continue;
+      if (elapsed - b.time > 0.05) continue;
+      // Only count contacts pushing from opposite sides of the ball.
+      if (a.nx * b.nx + a.nz * b.nz > -0.35) continue;
+      const closing = a.speed + b.speed;
+      if (closing < 14) continue;
+      const pop = closing * 0.3;
+      // Cancel the sideways squirt from resolving the two hits in sequence;
+      // the ball should rise out of the pinch with the net push, not fire
+      // out of one side at full speed.
+      const total = a.speed + b.speed;
+      const netX = (a.vx * a.speed + b.vx * b.speed) / total;
+      const netZ = (a.vz * a.speed + b.vz * b.speed) / total;
+      ball.vel.x = netX * 0.35;
+      ball.vel.z = netZ * 0.35;
+      ball.vel.y = Math.max(ball.vel.y, pop);
+      a.pinched = true;
+      b.pinched = true;
+      pinchCount++;
+      lastPinch = {
+        a: a.car, b: b.car,
+        closing: +closing.toFixed(1),
+        vy: +pop.toFixed(1),
+        time: +elapsed.toFixed(2)
+      };
+      addCommentary('Pinch! The ball is squeezed straight up between both cars.');
+      return;
+    }
+  }
 }
 
 function syncTransforms() {
@@ -1838,6 +1932,8 @@ function step(dt) {
     syncTransforms();
   }
 
+  resolveBallPinch();
+
   if (clock <= 0) {
     clock = 180;
     const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
@@ -1876,8 +1972,9 @@ function updateCamera(dt) {
     lookTarget.set(0, 0, 0);
   }
 
-  camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt));
-  currentLook.lerp(lookTarget, 1 - Math.pow(0.001, dt));
+  const cameraBlend = 1 - Math.exp(-dt * 5);
+  camera.position.lerp(desiredCamera, cameraBlend);
+  currentLook.lerp(lookTarget, cameraBlend);
   camera.lookAt(currentLook);
 }
 
@@ -2099,6 +2196,22 @@ window.__rl3d = {
     syncTransforms();
     return { frames, state: matchState, score: { blue: scoreBlue, orange: scoreOrange, clock } };
   },
+  render() {
+    syncTransforms();
+    renderer.render(scene, camera);
+  },
+  camera(mode) {
+    setCameraMode(mode);
+    updateCamera(1 / 60);
+    syncTransforms();
+    renderer.render(scene, camera);
+  },
+  cameraAt(x, y, z, tx, ty, tz) {
+    camera.position.set(x, y, z);
+    camera.lookAt(tx, ty, tz);
+    camera.updateMatrixWorld();
+    renderer.render(scene, camera);
+  },
   audit(seconds) {
     const frames = Math.max(1, Math.round(seconds * 60));
     const startBlue = scoreBlue;
@@ -2235,7 +2348,8 @@ window.__rl3d = {
   },
   get score() { return { blue: scoreBlue, orange: scoreOrange, clock }; },
   get state() { return matchState; },
-  get touch() { return { team: lastTouch.team, car: lastTouch.car, age: +(elapsed - lastTouch.time).toFixed(2), speed: +lastTouch.speed.toFixed(1) }; }
+  get touch() { return { team: lastTouch.team, car: lastTouch.car, age: +(elapsed - lastTouch.time).toFixed(2), speed: +lastTouch.speed.toFixed(1) }; },
+  get pinch() { return { count: pinchCount, last: lastPinch }; }
 };
 
 applySkillUI();
