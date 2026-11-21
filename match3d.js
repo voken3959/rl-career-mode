@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
 
 /* ============================== CONFIG ============================== */
 
@@ -619,48 +620,30 @@ function createCar(team, isPlayer) {
   const group = new THREE.Group();
   const chassis = new THREE.Group();
   group.add(chassis);
-
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55 });
-  const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x111722, roughness: 0.5, metalness: 0.4 });
-  const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x120a20, roughness: 0.15, metalness: 0.7, transparent: true, opacity: 0.85 });
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), bodyMaterial);
-  body.position.y = 1.05;
-  body.castShadow = true;
-  chassis.add(body);
-
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 2.2), bodyMaterial);
-  hood.position.set(1.25, 1.62, 0);
-  hood.castShadow = true;
-  chassis.add(hood);
-
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.85, 2.0), glassMaterial);
-  cabin.position.set(-0.3, 1.85, 0);
-  cabin.castShadow = true;
-  chassis.add(cabin);
-
-  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.12, 2.3), darkMaterial);
-  spoiler.position.set(-1.95, 1.85, 0);
-  chassis.add(spoiler);
-
   const wheels = [];
-  const wheelGeometry = new THREE.CylinderGeometry(0.62, 0.62, 0.48, 16);
-  wheelGeometry.rotateX(Math.PI / 2);
-  [[1.35, 1.25], [1.35, -1.25], [-1.35, 1.25], [-1.35, -1.25]].forEach(([x, z]) => {
-    const wheel = new THREE.Mesh(wheelGeometry, darkMaterial);
-    wheel.position.set(x, 0.62, z);
-    wheel.rotation.order = 'YXZ';
-    wheel.castShadow = true;
-    chassis.add(wheel);
-    wheels.push(wheel);
-  });
 
-  const headlightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.6 });
-  [-0.8, 0.8].forEach(z => {
-    const light = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.28, 0.5), headlightMaterial);
-    light.position.set(2.08, 1.25, z);
-    chassis.add(light);
-  });
+  // Use the supplied Fennec GLB as the car body. It is loaded once and cloned
+  // per car; its wheels are part of the model, so they pitch with the chassis.
+  if (carModelTemplate) {
+    const model = carModelTemplate.clone(true);
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(mat => {
+            if (mat && mat.name === 'Paint') mat.color.setHex(color);
+          });
+        }
+      }
+    });
+    chassis.add(model);
+  } else {
+    const fallback = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 }));
+    fallback.position.y = 1.05;
+    chassis.add(fallback);
+  }
 
   const flame = new THREE.Mesh(
     new THREE.ConeGeometry(0.38, 1.6, 10),
@@ -725,6 +708,33 @@ function createCar(team, isPlayer) {
     index: 0
   };
 }
+
+const carModelTemplate = await (async () => {
+  try {
+    const loadedScene = await new Promise((resolve, reject) => {
+      new GLTFLoader().load('assets/fennec.glb', (gltf) => resolve(gltf.scene), undefined, reject);
+    });
+    const box = new THREE.Box3().setFromObject(loadedScene);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = 4.1 / size.x;
+    loadedScene.scale.setScalar(scale);
+    const box2 = new THREE.Box3().setFromObject(loadedScene);
+    const center = box2.getCenter(new THREE.Vector3());
+    loadedScene.position.x -= center.x;
+    loadedScene.position.z -= center.z;
+    loadedScene.position.y -= box2.min.y;
+    loadedScene.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    return loadedScene;
+  } catch (error) {
+    console.error('Could not load car model', error);
+    return null;
+  }
+})();
 
 const cars = [
   createCar('blue', true),
