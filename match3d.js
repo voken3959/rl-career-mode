@@ -52,6 +52,7 @@ const PHYSICS_SUBSTEPS = 8;
 const SOLVER_ITERATIONS = 6;
 const CEILING_Y = 52;
 const ARENA_WALL_INSET = 0.6;
+const WALL_HEIGHT = 24;
 const TARGET_LIMIT_X = HALF_L - 3;
 const TARGET_LIMIT_Z = HALF_W - 4;
 
@@ -252,10 +253,10 @@ const endWallZ = FIELD.goalHalf + endWallDepth / 2;
 const cornerX = HALF_L - CORNER_R;
 const cornerZ = HALF_W - CORNER_R;
 
-addWallBox(sideWallLength, 7, 1.2, 0, 3.5, -HALF_W);
-addWallBox(sideWallLength, 7, 1.2, 0, 3.5, HALF_W);
+addWallBox(sideWallLength, WALL_HEIGHT, 1.2, 0, WALL_HEIGHT / 2, -HALF_W);
+addWallBox(sideWallLength, WALL_HEIGHT, 1.2, 0, WALL_HEIGHT / 2, HALF_W);
 [-HALF_L, HALF_L].forEach(x => {
-  [-endWallZ, endWallZ].forEach(z => addWallBox(1.2, 7, endWallDepth, x, 3.5, z));
+  [-endWallZ, endWallZ].forEach(z => addWallBox(1.2, WALL_HEIGHT, endWallDepth, x, WALL_HEIGHT / 2, z));
 });
 
 const cornerConfigs = [
@@ -266,23 +267,23 @@ const cornerConfigs = [
 ];
 cornerConfigs.forEach(corner => {
   const mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(CORNER_R, CORNER_R, 7, 24, 1, true, corner.start, Math.PI / 2),
+    new THREE.CylinderGeometry(CORNER_R, CORNER_R, WALL_HEIGHT, 24, 1, true, corner.start, Math.PI / 2),
     wallMaterial
   );
-  mesh.position.set(corner.x, 3.5, corner.z);
+  mesh.position.set(corner.x, WALL_HEIGHT / 2, corner.z);
   mesh.castShadow = true;
   scene.add(mesh);
 });
 
 [-HALF_W - 0.2, HALF_W + 0.2].forEach(z => {
   const trim = new THREE.Mesh(new THREE.BoxGeometry(sideWallLength, 0.35, 0.4), trimBlue);
-  trim.position.set(0, 7.1, z);
+  trim.position.set(0, WALL_HEIGHT + 0.1, z);
   scene.add(trim);
 });
 [-HALF_L - 0.2, HALF_L + 0.2].forEach(x => {
   [-endWallZ, endWallZ].forEach(z => {
     const trim = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, endWallDepth), trimBlue);
-    trim.position.set(x, 7.1, z);
+    trim.position.set(x, WALL_HEIGHT + 0.1, z);
     scene.add(trim);
   });
 });
