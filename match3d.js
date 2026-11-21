@@ -281,7 +281,7 @@ const rampDepth = SIDE_RAMP_HEIGHT * Math.SQRT2;
 [-1, 1].forEach(side => {
   const ramp = new THREE.Mesh(new THREE.BoxGeometry(sideWallLength, 0.45, rampDepth), wallMaterial);
   ramp.rotation.x = side > 0 ? -Math.PI / 4 : Math.PI / 4;
-  ramp.position.set(0, SIDE_RAMP_HEIGHT / 2, side * (WALL_Z + SIDE_RAMP_HEIGHT / 2));
+  ramp.position.set(0, SIDE_RAMP_HEIGHT / 2, side * ((HALF_W - ARENA_WALL_INSET) + SIDE_RAMP_HEIGHT / 2));
   ramp.castShadow = true;
   ramp.receiveShadow = true;
   scene.add(ramp);
