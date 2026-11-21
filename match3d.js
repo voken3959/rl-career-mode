@@ -714,6 +714,9 @@ function createCar(team, isPlayer) {
     landImpact: 0,
     steerAngle: 0,
     cooldown: 0,
+    lastBallContact: -999,
+    lastHitEvent: -999,
+    whiffContact: false,
     hitQuality: 1,
     flameTimer: 0,
     targetError: new THREE.Vector3(),
@@ -1102,15 +1105,31 @@ function updateCar(car, dt) {
   const speedRatio = clamp(speedAbs / Math.max(4, maxSpeed), 0, 1);
   const againstWall = Math.abs(car.pos.x) > TARGET_LIMIT_X || Math.abs(car.pos.z) > TARGET_LIMIT_Z;
   const wallEscape = againstWall && speedAbs < 5 && !car.airborne;
-  const steerAuthority = car.airborne ? 0.16 : 0.55 + 0.45 * clamp(speedAbs / 8, 0, 1);
+  // Tyres only steer a car that is rolling: authority builds with speed so cars
+  // swing through an arc instead of pivoting on the spot like a tank.
+  const steerAuthority = car.airborne ? 0.16 : 0.3 + 0.7 * clamp(speedAbs / 10, 0, 1);
   const turnScale = 1 - speedRatio * 0.38;
   const targetYaw = clamp(difference / 0.55, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
     steerAuthority * turnScale * (wallEscape ? 2.0 : 1);
   const yawAccel = car.airborne ? 4 : (wallEscape ? 20 : 11);
   car.yawRate += clamp(targetYaw - car.yawRate, -yawAccel * dt, yawAccel * dt);
   car.yawRate = clamp(car.yawRate, -6, 6);
-  car.heading += car.yawRate * dt;
+  const turned = car.yawRate * dt;
+  car.heading += turned;
   car.heading = Math.atan2(Math.sin(car.heading), Math.cos(car.heading));
+  if (onGround && !wallEscape) {
+    // Tyres carry momentum around a corner: the velocity swings with the nose
+    // instead of bleeding speed away. A car that is already sliding sideways
+    // (after a hit) gets no help, so impacts still send it spinning off line.
+    const slipNow = Math.abs(car.vel.x * right.x + car.vel.z * right.z);
+    const follow = 0.85 * clamp(1 - slipNow / 5, 0, 1);
+    const cosT = Math.cos(turned * follow);
+    const sinT = Math.sin(turned * follow);
+    const vx = car.vel.x;
+    const vz = car.vel.z;
+    car.vel.x = vx * cosT + vz * sinT;
+    car.vel.z = -vx * sinT + vz * cosT;
+  }
   car.steerAngle += (clamp(difference / 0.5, -1, 1) * 0.45 - car.steerAngle) * Math.min(1, dt * 10);
 
   if (car.flipTimer > 0) {
@@ -1306,42 +1325,24 @@ function sideRampOffset(y) {
   return Math.min(SIDE_RAMP_HEIGHT, Math.max(0, y));
 }
 
+// A car that is in the air above the side ramp rests on the ramp surface instead
+// of being snapped sideways: it is lifted out along the ramp normal and its
+// velocity into the slope is removed, so it slides back down under gravity.
+// Grounded cars (y = 0) hit the plain wall, which clampCarToArena handles.
 function resolveCarSideRamps(car) {
+  if (car.y <= 0.001 || car.y >= SIDE_RAMP_HEIGHT) return;
   const support = carSupportRadius(car, 0, 1);
-  // +Z side: wall at z = +(WALL_Z + rampOffset(y)).
-  {
-    const boundary = WALL_Z + sideRampOffset(car.y);
-    const maxZ = boundary - support;
-    if (car.pos.z > maxZ) {
-      const pen = car.pos.z - maxZ;
-      const ramp = car.y >= 0 && car.y < SIDE_RAMP_HEIGHT;
-      const ny = ramp ? 1 / Math.SQRT2 : 0;
-      const nz = ramp ? -1 / Math.SQRT2 : -1;
-      car.pos.y += pen * ny;
-      car.pos.z += pen * nz;
-      const vn = car.vel.y * ny + car.vel.z * nz;
-      if (vn < 0) {
-        car.vel.y -= ny * vn * 1.05;
-        car.vel.z -= nz * vn * 1.05;
-      }
-    }
-  }
-  // -Z side: wall at z = -(WALL_Z + rampOffset(y)).
-  {
-    const boundary = -(WALL_Z + sideRampOffset(car.y));
-    const minZ = boundary + support;
-    if (car.pos.z < minZ) {
-      const pen = minZ - car.pos.z;
-      const ramp = car.y >= 0 && car.y < SIDE_RAMP_HEIGHT;
-      const ny = ramp ? 1 / Math.SQRT2 : 0;
-      const nz = ramp ? 1 / Math.SQRT2 : 1;
-      car.pos.y += pen * ny;
-      car.pos.z += pen * nz;
-      const vn = car.vel.y * ny + car.vel.z * nz;
-      if (vn < 0) {
-        car.vel.y -= ny * vn * 1.05;
-        car.vel.z -= nz * vn * 1.05;
-      }
+  for (const side of [-1, 1]) {
+    // How far the car's outer edge sticks out past the ramp surface at its height.
+    const overlap = side * car.pos.z + support - (WALL_Z + car.y);
+    if (overlap <= 0) continue;
+    // Moving out along the 45° normal by overlap / 2 in y and z cancels the overlap.
+    car.y += overlap * 0.5;
+    car.pos.z -= side * overlap * 0.5;
+    const vn = (car.vel.y - side * car.vel.z) / Math.SQRT2;
+    if (vn < 0) {
+      car.vel.y -= (vn * 1.05) / Math.SQRT2;
+      car.vel.z += (side * vn * 1.05) / Math.SQRT2;
     }
   }
 }
@@ -1545,14 +1546,22 @@ function resolveCarBallCollision(car) {
   const nz = f.z * localNormalX + r.z * localNormalZ;
 
   // Hard separation: no contact can ever leave the ball inside the bodywork.
-  ball.pos.x += nx * penetration;
-  ball.pos.y += ny * penetration;
-  ball.pos.z += nz * penetration;
-  car.pos.x -= nx * penetration * 0.08;
-  car.pos.z -= nz * penetration * 0.08;
+  // The light ball takes most of the correction, the heavy car a small share.
+  const carShare = BALL_MASS / (BALL_MASS + CAR_MASS);
+  ball.pos.x += nx * penetration * (1 - carShare);
+  ball.pos.y += ny * penetration * (1 - carShare);
+  ball.pos.z += nz * penetration * (1 - carShare);
+  car.pos.x -= nx * penetration * carShare;
+  car.pos.z -= nz * penetration * carShare;
   clampCarToArena(car);
 
-  if (car.cooldown > 0) return;
+  // A contact session lasts while the ball stays against the car. Whether the
+  // rookie whiffs is decided once per session, so a car driving into the ball
+  // gets one consistent response instead of a fresh dice roll every substep.
+  if (elapsed - car.lastBallContact > 0.15) {
+    car.whiffContact = Math.random() < skill.whiff;
+  }
+  car.lastBallContact = elapsed;
 
   const contactX = car.pos.x + f.x * clampedX + r.x * clampedZ;
   const contactY = centreY + clampedY;
@@ -1566,12 +1575,15 @@ function resolveCarBallCollision(car) {
   const relativeY = ball.vel.y - car.vel.y;
   const relativeZ = ball.vel.z - carPointVZ;
   const approach = relativeX * nx + relativeY * ny + relativeZ * nz;
-  if (approach > -0.25) return;
+  // Only a ball moving into the car gets an impulse, so no hit cooldown is needed
+  // and the ball can never slip through the bodywork between touches.
+  if (approach > -0.02) return;
 
-  car.cooldown = 0.38 + (1 - skill.accuracy) * 0.42;
-
-  const whiffed = Math.random() < skill.whiff;
-  const restitution = whiffed ? 0.08 : CAR_BALL_RESTITUTION;
+  const whiffed = car.whiffContact;
+  // Restitution fades in with impact speed: hard hits bounce, while a slow ball
+  // carried on the nose or roof settles instead of jittering.
+  const closingSpeed = -approach;
+  const restitution = whiffed ? 0.08 : CAR_BALL_RESTITUTION * clamp((closingSpeed - 0.4) / 2.2, 0, 1);
   const raCrossN = raz * nx - rax * nz;
   const denominator = 1 / BALL_MASS + 1 / CAR_MASS + (raCrossN * raCrossN) / CAR_YAW_INERTIA;
   const impulse = (-(1 + restitution) * approach) / denominator;
@@ -1616,17 +1628,24 @@ function resolveCarBallCollision(car) {
     ball.spin.z += (bx * iy - by * ix) / BALL_INERTIA;
   }
 
+  // Effects, commentary and pinch tracking fire once per real hit, not on every
+  // substep of a slow carry.
+  const newHit = closingSpeed > 1.0 && elapsed - car.lastHitEvent > 0.25;
+  if (newHit) car.lastHitEvent = elapsed;
+
   if (!whiffed) {
     // The contact itself decides where the ball goes: no scripted aim force.
     // Better players start from a cleaner approach angle and hit harder.
     // No scripted spin: rotation comes only from the tangential contact above.
-    car.flameTimer = Math.max(car.flameTimer, 0.14);
-    ballGlow.intensity = 1.5;
+    if (newHit) {
+      car.flameTimer = Math.max(car.flameTimer, 0.14);
+      ballGlow.intensity = 1.5;
 
-    if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
-      addCommentary('He actually made clean contact! Don\'t get used to it.');
+      if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
+        addCommentary('He actually made clean contact! Don\'t get used to it.');
+      }
     }
-  } else if (car.isPlayer && Math.random() < 0.18) {
+  } else if (newHit && car.isPlayer && Math.random() < 0.18) {
     addCommentary('Mistimed challenge — only a glancing touch.');
   }
 
@@ -1634,7 +1653,7 @@ function resolveCarBallCollision(car) {
   const speed = ball.vel.length();
   if (speed > BALL_MAX_SPEED) ball.vel.multiplyScalar(BALL_MAX_SPEED / speed);
 
-  if (!whiffed) {
+  if (!whiffed && newHit) {
     pinchContacts.push({
       car: car.index,
       nx, ny, nz,
@@ -1862,20 +1881,22 @@ function collideBallArena() {
 
   // Side walls: a sloped ramp at the base lets the ball (and cars) climb,
   // then a vertical wall above it.
+  // The arena cross-section is convex (floor, 45° ramp, vertical wall), so the
+  // ball is the intersection of two half-spaces, each pushed in by the ball
+  // radius. Each plane is resolved by true distance along its own normal.
   if (Math.abs(ball.pos.x) <= CORNER_CENTER_X) {
-    const ramp = ball.pos.y >= 0 && ball.pos.y < SIDE_RAMP_HEIGHT;
-    const offset = sideRampOffset(ball.pos.y);
-    const boundary = WALL_Z + offset;
-    if (ball.pos.z > boundary - r) {
-      const ny = ramp ? 1 / Math.SQRT2 : 0;
-      const nz = ramp ? -1 / Math.SQRT2 : -1;
-      const penetration = ball.pos.z - (boundary - r);
-      resolveBallStaticContact(0, ny, nz, penetration, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
-    } else if (ball.pos.z < -boundary + r) {
-      const ny = ramp ? 1 / Math.SQRT2 : 0;
-      const nz = ramp ? 1 / Math.SQRT2 : 1;
-      const penetration = (-boundary + r) - ball.pos.z;
-      resolveBallStaticContact(0, ny, nz, penetration, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    for (const side of [-1, 1]) {
+      // Signed distance from the ball centre to the ramp plane (z = side * (WALL_Z + y)).
+      const rampDistance = (ball.pos.y + WALL_Z - side * ball.pos.z) / Math.SQRT2;
+      if (rampDistance < r) {
+        resolveBallStaticContact(0, 1 / Math.SQRT2, -side / Math.SQRT2, r - rampDistance,
+          BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+      }
+      // Vertical wall above the top of the ramp.
+      const wallDistance = WALL_Z + SIDE_RAMP_HEIGHT - side * ball.pos.z;
+      if (wallDistance < r) {
+        resolveBallStaticContact(0, 0, -side, r - wallDistance, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+      }
     }
   }
 
