@@ -262,9 +262,9 @@ addWallBox(sideWallLength, WALL_HEIGHT, 1.2, 0, WALL_HEIGHT / 2, HALF_W);
 
 const cornerConfigs = [
   { x: cornerX, z: cornerZ, start: 0 },
-  { x: -cornerX, z: cornerZ, start: Math.PI / 2 },
+  { x: -cornerX, z: cornerZ, start: Math.PI * 1.5 },
   { x: -cornerX, z: -cornerZ, start: Math.PI },
-  { x: cornerX, z: -cornerZ, start: Math.PI * 1.5 }
+  { x: cornerX, z: -cornerZ, start: Math.PI / 2 }
 ];
 cornerConfigs.forEach(corner => {
   const mesh = new THREE.Mesh(
