@@ -53,6 +53,7 @@ const SOLVER_ITERATIONS = 6;
 const CEILING_Y = 52;
 const ARENA_WALL_INSET = 0.6;
 const WALL_HEIGHT = 24;
+const SIDE_RAMP_HEIGHT = 9;
 const TARGET_LIMIT_X = HALF_L - 3;
 const TARGET_LIMIT_Z = HALF_W - 4;
 
@@ -235,7 +236,7 @@ scene.add(field);
 
 /* ============================== WALLS ============================== */
 
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x171122, roughness: 0.45, metalness: 0.35 });
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x171122, roughness: 0.45, metalness: 0.35, transparent: true, opacity: 0.22, depthWrite: false });
 const trimBlue = new THREE.MeshStandardMaterial({ color: 0x140a24, emissive: 0x7a00ff, emissiveIntensity: 0.85, roughness: 0.4 });
 
 function addWallBox(w, h, d, x, y, z) {
@@ -273,6 +274,17 @@ cornerConfigs.forEach(corner => {
   mesh.position.set(corner.x, WALL_HEIGHT / 2, corner.z);
   mesh.castShadow = true;
   scene.add(mesh);
+});
+
+// Sloped ramps at the base of the side walls let cars drive up.
+const rampDepth = SIDE_RAMP_HEIGHT * Math.SQRT2;
+[-1, 1].forEach(side => {
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(sideWallLength, 0.45, rampDepth), wallMaterial);
+  ramp.rotation.x = side > 0 ? -Math.PI / 4 : Math.PI / 4;
+  ramp.position.set(0, SIDE_RAMP_HEIGHT / 2, side * (WALL_Z + SIDE_RAMP_HEIGHT / 2));
+  ramp.castShadow = true;
+  ramp.receiveShadow = true;
+  scene.add(ramp);
 });
 
 [-HALF_W - 0.2, HALF_W + 0.2].forEach(z => {
@@ -1203,6 +1215,7 @@ function updateCar(car, dt) {
 
   car.pos.x += car.vel.x * dt;
   car.pos.z += car.vel.z * dt;
+  resolveCarSideRamps(car);
   clampCarToArena(car);
   car.speed = car.vel.x * forward.x + car.vel.z * forward.z;
   car.vy = car.vel.y;
@@ -1289,9 +1302,54 @@ function carSupportRadius(car, nx, nz) {
     Math.abs(r.x * nx + r.z * nz) * CAR_HALF_WIDTH;
 }
 
+function sideRampOffset(y) {
+  return Math.min(SIDE_RAMP_HEIGHT, Math.max(0, y));
+}
+
+function resolveCarSideRamps(car) {
+  const support = carSupportRadius(car, 0, 1);
+  // +Z side: wall at z = +(WALL_Z + rampOffset(y)).
+  {
+    const boundary = WALL_Z + sideRampOffset(car.y);
+    const maxZ = boundary - support;
+    if (car.pos.z > maxZ) {
+      const pen = car.pos.z - maxZ;
+      const ramp = car.y >= 0 && car.y < SIDE_RAMP_HEIGHT;
+      const ny = ramp ? 1 / Math.SQRT2 : 0;
+      const nz = ramp ? -1 / Math.SQRT2 : -1;
+      car.pos.y += pen * ny;
+      car.pos.z += pen * nz;
+      const vn = car.vel.y * ny + car.vel.z * nz;
+      if (vn < 0) {
+        car.vel.y -= ny * vn * 1.05;
+        car.vel.z -= nz * vn * 1.05;
+      }
+    }
+  }
+  // -Z side: wall at z = -(WALL_Z + rampOffset(y)).
+  {
+    const boundary = -(WALL_Z + sideRampOffset(car.y));
+    const minZ = boundary + support;
+    if (car.pos.z < minZ) {
+      const pen = minZ - car.pos.z;
+      const ramp = car.y >= 0 && car.y < SIDE_RAMP_HEIGHT;
+      const ny = ramp ? 1 / Math.SQRT2 : 0;
+      const nz = ramp ? 1 / Math.SQRT2 : 1;
+      car.pos.y += pen * ny;
+      car.pos.z += pen * nz;
+      const vn = car.vel.y * ny + car.vel.z * nz;
+      if (vn < 0) {
+        car.vel.y -= ny * vn * 1.05;
+        car.vel.z -= nz * vn * 1.05;
+      }
+    }
+  }
+}
+
 function clampCarToArena(car) {
   const limitX = WALL_X - carSupportRadius(car, 1, 0);
-  const limitZ = WALL_Z - carSupportRadius(car, 0, 1);
+  const sideOffset = sideRampOffset(car.y);
+  const limitZ = WALL_Z + sideOffset - carSupportRadius(car, 0, 1);
 
   if (car.pos.x > limitX) {
     car.pos.x = limitX;
@@ -1802,12 +1860,22 @@ function collideBallGoalFrame() {
 function collideBallArena() {
   const r = BALL_RADIUS;
 
-  // Flat side walls, stopping where the rounded corner arcs begin.
+  // Side walls: a sloped ramp at the base lets the ball (and cars) climb,
+  // then a vertical wall above it.
   if (Math.abs(ball.pos.x) <= CORNER_CENTER_X) {
-    if (ball.pos.z > WALL_Z - r) {
-      resolveBallStaticContact(0, 0, -1, ball.pos.z - (WALL_Z - r), BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
-    } else if (ball.pos.z < -WALL_Z + r) {
-      resolveBallStaticContact(0, 0, 1, (-WALL_Z + r) - ball.pos.z, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    const ramp = ball.pos.y >= 0 && ball.pos.y < SIDE_RAMP_HEIGHT;
+    const offset = sideRampOffset(ball.pos.y);
+    const boundary = WALL_Z + offset;
+    if (ball.pos.z > boundary - r) {
+      const ny = ramp ? 1 / Math.SQRT2 : 0;
+      const nz = ramp ? -1 / Math.SQRT2 : -1;
+      const penetration = ball.pos.z - (boundary - r);
+      resolveBallStaticContact(0, ny, nz, penetration, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
+    } else if (ball.pos.z < -boundary + r) {
+      const ny = ramp ? 1 / Math.SQRT2 : 0;
+      const nz = ramp ? 1 / Math.SQRT2 : 1;
+      const penetration = (-boundary + r) - ball.pos.z;
+      resolveBallStaticContact(0, ny, nz, penetration, BALL_WALL_RESTITUTION, BALL_WALL_FRICTION);
     }
   }
 
