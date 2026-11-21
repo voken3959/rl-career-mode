@@ -1619,7 +1619,7 @@ function resolveCarBallCollision(car) {
   if (!whiffed) {
     // The contact itself decides where the ball goes: no scripted aim force.
     // Better players start from a cleaner approach angle and hit harder.
-    ball.spin.y += rand(-2.5, 2.5) * (1 - skill.accuracy * 0.5);
+    // No scripted spin: rotation comes only from the tangential contact above.
     car.flameTimer = Math.max(car.flameTimer, 0.14);
     ballGlow.intensity = 1.5;
 
