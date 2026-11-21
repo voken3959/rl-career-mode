@@ -717,6 +717,7 @@ function createCar(team, isPlayer) {
     lastBallContact: -999,
     lastHitEvent: -999,
     whiffContact: false,
+    attackDriving: false,
     hitQuality: 1,
     flameTimer: 0,
     targetError: new THREE.Vector3(),
@@ -837,6 +838,7 @@ function resetPositions(message) {
     car.boost = 33;
     car.boostHold = 0;
     car.reactionTimer = 0;
+    car.attackDriving = false;
     car.targetError.set(0, 0, 0);
     car.targetSmooth.copy(car.pos);
     car.role = index % 2 === 0 ? 'attack' : 'support';
@@ -930,10 +932,27 @@ function futureBallPosition(seconds, target) {
   );
 }
 
+// Closest boost pad that is ready to collect, with big pads worth a longer detour.
+function nearestActivePad(car, maxDistance) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const pad of pads) {
+    if (pad.cooldown > 0) continue;
+    const distance = Math.hypot(pad.x - car.pos.x, pad.z - car.pos.z);
+    if (distance > maxDistance) continue;
+    const score = distance - (pad.big ? 14 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = pad;
+    }
+  }
+  return best;
+}
+
 function chooseTarget(car) {
   if (car.reactionTimer <= 0) {
     car.reactionTimer = skill.reaction * rand(0.7, 1.3);
-    const errorRadius = (1 - skill.accuracy) * 13;
+    const errorRadius = (1 - skill.accuracy) * 9;
     car.targetError.set(rand(-errorRadius, errorRadius), 0, rand(-errorRadius, errorRadius));
   }
 
@@ -975,7 +994,16 @@ function chooseTarget(car) {
     const ballGap = Math.hypot(relX, relZ);
     const sideSign = Math.abs(side) < 0.5 ? (car.index % 2 === 0 ? 1 : -1) : Math.sign(side);
 
-    if ((along < -0.5 && Math.abs(side) < 4 && ballGap < 18) || ballGap < 6) {
+    // Switch between "line up" and "drive through" with hysteresis. A single
+    // threshold made cars flip-flop between the two plans and wobble around
+    // the ball; now they commit to a run until they overshoot or lose the line.
+    if (car.attackDriving) {
+      if (along > 2 || (Math.abs(side) > 7 && ballGap > 8) || ballGap > 24) car.attackDriving = false;
+    } else if ((along < -0.5 && Math.abs(side) < 4 && ballGap < 18) || (ballGap < 6 && along < 1.5)) {
+      car.attackDriving = true;
+    }
+
+    if (car.attackDriving) {
       // Drive through the ball slightly off its centre line so the contact
       // deflects it left or right naturally instead of a dead-straight hit.
       const glance = sideSign * 1.2;
@@ -999,7 +1027,14 @@ function chooseTarget(car) {
     const touchedByUs = lastTouch.team === car.team;
     const ballDistance = car.pos.distanceTo(ball.pos);
 
-    if (ballDistance > 26) {
+    const lowBoostPad = car.boost < 40 && !dangerZone && ballDistance > 14 && ballSpeed < 25
+      ? nearestActivePad(car, 45)
+      : null;
+
+    if (lowBoostPad) {
+      // Running low: rotate through a boost pad while the attacker holds the ball.
+      target.set(lowBoostPad.x, 0, lowBoostPad.z);
+    } else if (ballDistance > 26) {
       // Do not spectate from the other end: get back into the play.
       futureBallPosition(clamp(0.15 + ballSpeed * 0.005, 0.2, 0.45), target);
       target.z += side * 4;
@@ -1020,12 +1055,18 @@ function chooseTarget(car) {
       // Slow or contested ball: stay close behind the play as the second
       // option, offset to the side for a rebound or pass.
       target.set(ball.pos.x - attackDir * 9, 0, ball.pos.z + side * 8);
-      if (car.pos.distanceTo(ball.pos) < 9) target.copy(ball.pos);
+      // Only challenge when the partner is not already closer, so the two team
+      // mates stop piling into the same ball.
+      const mateBallDistance = mate ? mate.pos.distanceTo(ball.pos) : Infinity;
+      if (ballDistance < 9 && mateBallDistance > ballDistance) target.copy(ball.pos);
     }
   }
 
   target.y = 0;
-  const errorScale = car.kickoffRole === 'kickoff' ? 1 : (car.role === 'attack' ? 0.8 : 0.35);
+  // Aim error fades as the attacker closes in, so rank shows up in reads and
+  // whiffs rather than in cars driving visibly past a ball they are touching.
+  const closeness = clamp(car.pos.distanceTo(ball.pos) / 12, 0.4, 1);
+  const errorScale = car.kickoffRole === 'kickoff' ? 1 : (car.role === 'attack' ? 0.8 * closeness : 0.35);
   target.addScaledVector(car.targetError, errorScale);
   target.x = clamp(target.x, -TARGET_LIMIT_X, TARGET_LIMIT_X);
   target.z = clamp(target.z, -TARGET_LIMIT_Z, TARGET_LIMIT_Z);
@@ -1043,7 +1084,7 @@ function updateCar(car, dt) {
 
   const rawTarget = chooseTarget(car);
   if (car.targetSmooth.lengthSq() === 0) car.targetSmooth.copy(rawTarget);
-  car.targetSmooth.lerp(rawTarget, Math.min(1, dt * 5));
+  car.targetSmooth.lerp(rawTarget, Math.min(1, dt * 8));
   const target = car.targetSmooth;
   const toTarget = new THREE.Vector3().subVectors(target, car.pos);
   toTarget.y = 0;
@@ -1077,12 +1118,22 @@ function updateCar(car, dt) {
 
   // Jumping and front flips — kickoff takers launch into the ball, field players challenge aerials.
   if (onGround && car.jumpCooldown <= 0 && !goalLocked) {
+    // Jump only when the ball is ahead and contact is about to happen. Before,
+    // any bouncing ball within 10 units made the car leap at once, and it then
+    // floated for over a second with almost no steering.
+    const toBallX = ball.pos.x - car.pos.x;
+    const toBallZ = ball.pos.z - car.pos.z;
+    const ballAhead = ballDistance > 0.01 ? (toBallX * forward.x + toBallZ * forward.z) / ballDistance : 1;
+    const reach = 2.5 + Math.max(0, car.speed) * 0.35;
+    // Convert "chance per 0.15 s" into a chance for this physics step.
+    const roll = chance => Math.random() < 1 - Math.pow(1 - chance, dt / 0.15);
     const kickoffFlip = kickoffPhase > 1.6 && car.kickoffRole === 'kickoff' && ballDistance < 7 && car.speed > 6;
-    const aerialChallenge = ball.pos.y > 3 && ballDistance < 10 && car.speed > 8 &&
-      (car.role === 'attack' || car.kickoffRole === 'kickoff') && Math.random() < 0.4 + skill.accuracy * 0.6;
-    const defensiveAerial = car.role === 'support' && ball.pos.y > 2.5 && ballDistance < 10 &&
-      (car.team === 'blue' ? ball.pos.x < 0 : ball.pos.x > 0) && Math.random() < 0.35 + skill.accuracy * 0.5;
-    const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < 10 && car.speed > 10 && Math.random() < 0.18 + skill.accuracy * 0.35;
+    const aerialChallenge = ball.pos.y > 4 && ballDistance < reach + 2 && ballAhead > 0.8 && car.speed > 8 &&
+      (car.role === 'attack' || car.kickoffRole === 'kickoff') && roll(0.35 + skill.accuracy * 0.5);
+    const defensiveAerial = car.role === 'support' && ball.pos.y > 3 && ballDistance < reach + 2 && ballAhead > 0.8 &&
+      (car.team === 'blue' ? ball.pos.x < 0 : ball.pos.x > 0) && roll(0.3 + skill.accuracy * 0.4);
+    const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < reach && ballAhead > 0.85 && car.speed > 10 &&
+      roll(0.15 + skill.accuracy * 0.3);
     if (kickoffFlip || aerialChallenge || defensiveAerial || lowFlip) {
       const flip = kickoffFlip || lowFlip || defensiveAerial || ball.pos.y > 4.5;
       car.vel.y = flip ? JUMP_SPEED * 0.72 : JUMP_SPEED;
@@ -1107,11 +1158,11 @@ function updateCar(car, dt) {
   const wallEscape = againstWall && speedAbs < 5 && !car.airborne;
   // Tyres only steer a car that is rolling: authority builds with speed so cars
   // swing through an arc instead of pivoting on the spot like a tank.
-  const steerAuthority = car.airborne ? 0.16 : 0.3 + 0.7 * clamp(speedAbs / 10, 0, 1);
+  const steerAuthority = car.airborne ? 0.4 : 0.3 + 0.7 * clamp(speedAbs / 10, 0, 1);
   const turnScale = 1 - speedRatio * 0.38;
   const targetYaw = clamp(difference / 0.55, -1, 1) * skill.turn * (car.isPlayer ? 1 : 0.95) *
     steerAuthority * turnScale * (wallEscape ? 2.0 : 1);
-  const yawAccel = car.airborne ? 4 : (wallEscape ? 20 : 11);
+  const yawAccel = car.airborne ? 7 : (wallEscape ? 20 : 11);
   car.yawRate += clamp(targetYaw - car.yawRate, -yawAccel * dt, yawAccel * dt);
   car.yawRate = clamp(car.yawRate, -6, 6);
   const turned = car.yawRate * dt;
@@ -1171,6 +1222,10 @@ function updateCar(car, dt) {
   const cornering = clamp(0.4 + 0.6 * alignment, 0.4, 1);
   const approachSpeed = Math.min(maxSpeed, Math.max(6, distance * 2.4) * (boosting ? 1.4 : 1));
   let desiredSpeed = approachSpeed * cornering;
+  // Chasers keep rolling while they line up instead of crawling to a stop at
+  // every waypoint and then having to accelerate again for the touch.
+  const chasing = car.role === 'attack' || (kickoffPhase > 0 && car.kickoffRole === 'kickoff');
+  if (chasing && alignment > 0.5 && ballDistance < 30) desiredSpeed = Math.max(desiredSpeed, maxSpeed * 0.55);
   if (car.reverseTimer > 0) desiredSpeed = -Math.min(10, baseSpeed * 0.35);
   desiredSpeed = clamp(desiredSpeed, -maxSpeed * 0.45, maxSpeed);
 
