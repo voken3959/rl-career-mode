@@ -633,7 +633,7 @@ function createCar(team, isPlayer) {
         if (child.material) {
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           mats.forEach(mat => {
-            if (mat && mat.name === 'Paint') mat.color.setHex(color);
+            if (mat && mat.name === 'Fennec_-_Body') mat.color.setHex(color);
           });
         }
       }
