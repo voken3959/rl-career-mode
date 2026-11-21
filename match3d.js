@@ -630,12 +630,18 @@ function createCar(team, isPlayer) {
       if (child.isMesh) {
         child.castShadow = true;
         child.receiveShadow = true;
+        // Clone materials so team colors do not leak between cars.
         if (child.material) {
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach(mat => {
-            if (mat && mat.name === 'Fennec_-_Body') mat.color.setHex(color);
-          });
+          if (Array.isArray(child.material)) {
+            child.material = child.material.map(mat => (mat ? mat.clone() : mat));
+          } else {
+            child.material = child.material.clone();
+          }
         }
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(mat => {
+          if (mat && mat.name === 'Fennec_-_Body') mat.color.setHex(color);
+        });
       }
     });
     chassis.add(model);
