@@ -908,15 +908,18 @@ function scoreGoal(team) {
 function assignRoles() {
   ['blue', 'orange'].forEach(team => {
     const mates = cars.filter(car => car.team === team);
-    // Keep the current first man unless his partner is clearly better placed.
     const attacker = mates.find(car => car.role === 'attack') || mates[0];
     const support = mates.find(car => car !== attacker);
     const attackerDistance = attacker.pos.distanceTo(ball.pos);
     const supportDistance = support.pos.distanceTo(ball.pos);
 
-    if (supportDistance + 4 < attackerDistance) {
+    // Only swap roles when the support is clearly much closer (8+ units) AND
+    // the cooldown has elapsed, so both teammates don't pile into the ball.
+    if (support.roleTimer <= 0 && supportDistance + 8 < attackerDistance) {
       attacker.role = 'support';
       support.role = 'attack';
+      attacker.roleTimer = 1.5;
+      support.roleTimer = 1.5;
     } else {
       attacker.role = 'attack';
       support.role = 'support';
