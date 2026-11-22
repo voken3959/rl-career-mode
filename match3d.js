@@ -693,11 +693,17 @@ function createCar(team, isPlayer) {
     chassis,
     wheels,
     flame,
+    // Car state — 2D physics with 3D orientation for rendering
     pos: new THREE.Vector3(),
     vel: new THREE.Vector3(),
     y: 0,
     vy: 0,
     airborne: false,
+    heading: 0,
+    yawRate: 0,
+    pitch: 0,
+    roll: 0,
+    orientation: new THREE.Quaternion(), // derived from heading/pitch/roll
     flipTimer: 0,
     flipAngle: 0,
     flipRate: 0,
@@ -706,11 +712,7 @@ function createCar(team, isPlayer) {
     reverseTimer: 0,
     stuckTimer: 0,
     speed: 0,
-    heading: 0,
-    yawRate: 0,
     wheelSpin: 0,
-    pitch: 0,
-    roll: 0,
     landImpact: 0,
     steerAngle: 0,
     cooldown: 0,
@@ -834,6 +836,9 @@ function resetPositions(message) {
     car.roll = 0;
     car.landImpact = 0;
     car.cooldown = 0;
+    car.ballContactDecided = false;
+    car.commitToRun = false;
+    car.roleTimer = 0;
     car.flameTimer = 0;
     car.boost = 33;
     car.boostHold = 0;
@@ -843,6 +848,7 @@ function resetPositions(message) {
     car.targetSmooth.copy(car.pos);
     car.role = index % 2 === 0 ? 'attack' : 'support';
     car.kickoffRole = takers.includes(index) ? 'kickoff' : 'support';
+    car.orientation.set(0, Math.sin(start.heading / 2), 0, Math.cos(start.heading / 2));
     car.mesh.position.set(start.x, 0, start.z);
     car.mesh.rotation.set(0, start.heading, 0);
     car.chassis.rotation.set(0, 0, 0);
