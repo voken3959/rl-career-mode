@@ -974,20 +974,15 @@ function chooseTarget(car) {
     // The non-taker breaks wide instead of swarming the centre spot.
     target.set(ownGoalX * 0.5, 0, car.index === 1 ? -28 : 28);
   } else if (car.role === 'attack') {
-    // Pick a spot in the opponent net, then approach the ball from behind
-    // that line. The contact geometry sends the ball there instead of a
-    // scripted force, so an angled approach produces an angled shot.
+    // Simpler, more direct attacker: aim at the ball and drive through it
+    // toward the opponent goal. The contact geometry sends the ball where the
+    // car is pointing, so approaching at an angle naturally angles the shot.
     const goalX = car.team === 'blue' ? HALF_L : -HALF_L;
-    const lead = clamp((car.pos.distanceTo(ball.pos) - 3.5) / 55, 0, 0.5);
+    const lead = clamp((car.pos.distanceTo(ball.pos) - 3.5) / 55, 0, 0.4);
     const bx = ball.pos.x + ball.vel.x * lead;
     const bz = ball.pos.z + ball.vel.z * lead;
-    // Aim across the net at the far post so the shot line is never a straight
-    // run down the middle. The car still has to earn the angle by getting
-    // behind the ball; nothing redirects the ball after contact.
-    const farPost = (bz >= 0 ? -1 : 1) * (FIELD.goalHalf - 2.2);
-    const aimZ = clamp(farPost + bz * 0.08, -6.5, 6.5);
     const shotX = goalX - bx;
-    const shotZ = aimZ - bz;
+    const shotZ = (car.index % 2 === 0 ? -4 : 4) - bz;
     const shotLength = Math.hypot(shotX, shotZ) || 1;
     const sx = shotX / shotLength;
     const sz = shotZ / shotLength;
@@ -998,30 +993,25 @@ function chooseTarget(car) {
     const along = relX * sx + relZ * sz;
     const side = relX * px + relZ * pz;
     const ballGap = Math.hypot(relX, relZ);
-    const sideSign = Math.abs(side) < 0.5 ? (car.index % 2 === 0 ? 1 : -1) : Math.sign(side);
 
-    // Switch between "line up" and "drive through" with hysteresis. A single
-    // threshold made cars flip-flop between the two plans and wobble around
-    // the ball; now they commit to a run until they overshoot or lose the line.
+    // Commit to driving through the ball until overshoot or lost line.
     if (car.attackDriving) {
-      if (along > 2 || (Math.abs(side) > 7 && ballGap > 8) || ballGap > 24) car.attackDriving = false;
-    } else if ((along < -0.5 && Math.abs(side) < 4 && ballGap < 18) || (ballGap < 6 && along < 1.5)) {
+      if (along > 2 || Math.abs(side) > 8 || ballGap > 24) car.attackDriving = false;
+    } else if (along < -0.5 && Math.abs(side) < 5 && ballGap < 20) {
       car.attackDriving = true;
     }
 
-    if (car.attackDriving) {
-      // Drive through the ball slightly off its centre line so the contact
-      // deflects it left or right naturally instead of a dead-straight hit.
-      const glance = sideSign * 1.2;
-      target.set(bx + sx * 16 + px * glance, 0, bz + sz * 16 + pz * glance);
+    if (car.attackDriving || ballGap < 5) {
+      const glance = (Math.abs(side) < 0.5 ? (car.index % 2 === 0 ? 1 : -1) : Math.sign(side)) * 1.0;
+      target.set(bx + sx * 14 + px * glance, 0, bz + sz * 14 + pz * glance);
     } else {
-      // Swing around to the back of the ball on the side already occupied.
+      const sideSign = Math.abs(side) < 0.5 ? (car.index % 2 === 0 ? 1 : -1) : Math.sign(side);
       const route = clamp((along + 2) / 10, 0, 1);
-      const depth = 5.5 + route * 4;
+      const depth = 4 + route * 4;
       target.set(
-        bx - sx * depth + px * sideSign * (2.5 + route * 6),
+        bx - sx * depth + px * sideSign * (2 + route * 5),
         0,
-        bz - sz * depth + pz * sideSign * (2.5 + route * 6)
+        bz - sz * depth + pz * sideSign * (2 + route * 5)
       );
     }
   } else {
@@ -1090,7 +1080,8 @@ function updateCar(car, dt) {
 
   const rawTarget = chooseTarget(car);
   if (car.targetSmooth.lengthSq() === 0) car.targetSmooth.copy(rawTarget);
-  car.targetSmooth.lerp(rawTarget, Math.min(1, dt * 8));
+  // Faster target tracking so cars don't lag behind their intended position.
+  car.targetSmooth.lerp(rawTarget, Math.min(1, dt * 15));
   const target = car.targetSmooth;
   const toTarget = new THREE.Vector3().subVectors(target, car.pos);
   toTarget.y = 0;
