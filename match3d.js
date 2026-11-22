@@ -1128,8 +1128,8 @@ function updateCar(car, dt) {
     // Convert "chance per 0.15 s" into a chance for this physics step.
     const roll = chance => Math.random() < 1 - Math.pow(1 - chance, dt / 0.15);
     const kickoffFlip = kickoffPhase > 1.6 && car.kickoffRole === 'kickoff' && ballDistance < 7 && car.speed > 6;
-    const aerialChallenge = ball.pos.y > 4 && ballDistance < reach + 2 && ballAhead > 0.8 && car.speed > 8 &&
-      (car.role === 'attack' || car.kickoffRole === 'kickoff') && roll(0.35 + skill.accuracy * 0.5);
+    const aerialChallenge = ball.pos.y > 3.5 && ballDistance < reach + 4 && ballAhead > 0.7 && car.speed > 6 &&
+      (car.role === 'attack' || car.kickoffRole === 'kickoff') && roll(0.45 + skill.accuracy * 0.5);
     const defensiveAerial = car.role === 'support' && ball.pos.y > 3 && ballDistance < reach + 2 && ballAhead > 0.8 &&
       (car.team === 'blue' ? ball.pos.x < 0 : ball.pos.x > 0) && roll(0.3 + skill.accuracy * 0.4);
     const lowFlip = ball.pos.y > FIELD.ballRadius + 1 && ballDistance < reach && ballAhead > 0.85 && car.speed > 10 &&
@@ -1270,13 +1270,36 @@ function updateCar(car, dt) {
       car.vel.z -= (car.vel.z / speedAfter) * drop;
     }
   } else {
+    // Aerial control: pitch, yaw and roll let the car fly toward the ball
+    // instead of just arcing under gravity. Steering already updates yaw;
+    // pitch and roll follow the target so the nose points where it needs to.
+    const aerialTarget = new THREE.Vector3().subVectors(target, car.pos);
+    aerialTarget.y -= 1.2;
+    const aerialDist = aerialTarget.length();
+    if (aerialDist > 0.5) {
+      const desiredPitch = clamp(aerialTarget.y / aerialDist * 0.6, -0.5, 0.5);
+      const desiredRoll = clamp(-car.yawRate * 0.05, -0.4, 0.4);
+      car.pitch += (desiredPitch - car.pitch) * Math.min(1, dt * 6);
+      car.roll += (desiredRoll - car.roll) * Math.min(1, dt * 6);
+    }
+    // Keep boosting in the air when the ball is ahead and boost is available.
+    if (car.boostHold <= 0 && car.boost > 0 && ballDistance < 20) {
+      const toBallX = ball.pos.x - car.pos.x;
+      const toBallZ = ball.pos.z - car.pos.z;
+      const ballAhead = toBallX * forward.x + toBallZ * forward.z > 0;
+      if (ballAhead) car.boostHold = 0.3;
+    }
     if (boosting) {
-      car.vel.x += forward.x * BOOST_ACCEL * 0.7 * dt;
-      car.vel.z += forward.z * BOOST_ACCEL * 0.7 * dt;
+      // Boost in the air is stronger and steerable, letting cars fly to the ball.
+      const boostScale = 1.35;
+      car.vel.x += forward.x * BOOST_ACCEL * boostScale * dt;
+      car.vel.z += forward.z * BOOST_ACCEL * boostScale * dt;
+      car.vel.y += 0.15 * BOOST_ACCEL * dt;
     }
     const airDrag = 1 - Math.min(0.25, 0.12 * dt);
     car.vel.x *= airDrag;
     car.vel.z *= airDrag;
+    car.vel.y *= 1 - Math.min(0.08, 0.04 * dt);
   }
 
   // Self-propelled speed is capped, but collisions may briefly carry a car faster.
