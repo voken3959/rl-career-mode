@@ -2135,8 +2135,11 @@ const camOffset = new THREE.Vector3();
 function updateCamera(dt) {
   const player = cars[Number(cameraMode.slice(3))] || cars[0];
   const portrait = camera.aspect < 1;
-  const back = (RL_MODE ? 6 : 17) * (portrait ? 1.15 : 1);
-  const height = (RL_MODE ? 2.6 : 9) * (portrait ? 1.15 : 1);
+  const widen = portrait ? 1.15 : 1;
+  const above = Math.max(0, ball.pos.y - player.pos.y);
+  // Sit low behind the car. When the ball is high, back off so the car and the ball both fit in view.
+  const back = ((RL_MODE ? 5.5 : 15) + above * 0.5) * widen;
+  const height = (RL_MODE ? 1.5 : 5.5) * widen;
 
   camOffset.set(player.pos.x - ball.pos.x, 0, player.pos.z - ball.pos.z);
   if (camOffset.lengthSq() < 0.25) camOffset.set(-Math.cos(player.heading), 0, Math.sin(player.heading));
@@ -2144,7 +2147,17 @@ function updateCamera(dt) {
 
   desiredCamera.copy(player.pos).addScaledVector(camOffset, back);
   desiredCamera.y = Math.max(player.pos.y, 0) + height;
+
+  // Look at the ball, but never tilt up so far that the car leaves the bottom of the screen.
+  const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const carAngle = Math.atan2(height, back);
+  const maxPitch = Math.max(0, halfFov * 0.75 - carAngle);
+  const toBallX = ball.pos.x - desiredCamera.x;
+  const toBallZ = ball.pos.z - desiredCamera.z;
+  const flat = Math.hypot(toBallX, toBallZ) || 1;
+  const ballPitch = Math.atan2(ball.pos.y - desiredCamera.y, flat);
   lookTarget.copy(ball.pos);
+  if (ballPitch > maxPitch) lookTarget.y = desiredCamera.y + Math.tan(maxPitch) * flat;
 
   const cameraBlend = 1 - Math.exp(-dt * 8);
   camera.position.lerp(desiredCamera, cameraBlend);
