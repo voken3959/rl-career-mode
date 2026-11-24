@@ -3,33 +3,34 @@
 
 import { RLEngine } from './engine.js';
 import { WhiskersPolicy, ACTION_TABLE } from './whiskers.js';
-import { FIELD_Y } from './constants.js';
+import { FIELD_Y, DT } from './constants.js';
+import { AirDribble, canStart, airControls } from './airdribble.js';
 
 /** Metres-ish scene units per Unreal unit: the 10240 uu long arena becomes 120 scene units. */
 export const SCENE_SCALE = 60 / FIELD_Y;
 
-// The network is one strong player. Lower tiers are made by sampling its actions with a higher temperature
-// (more mistakes) and by letting it react less often (it holds each action for `hold` decisions).
-// These numbers are starting guesses to be tuned by playing.
-// Nobody plays greedily, so even the top tier samples (temperature above 0) and every game differs.
-// Three kinds of mistake scale with the tier:
-//   temperature - how loosely it picks among the network's preferred actions
+// The network is one strong player. Lower tiers are made weaker in five ways, all scaled by rank
+// (these numbers are starting guesses to tune by playing):
+//   temperature - how loosely it picks among the network's preferred actions. Nobody plays greedily, so even Pro
+//                 samples and every game differs
+//   period      - physics ticks (at 120 Hz) between its decisions: strong players decide faster
 //   lapse       - chance per decision of a few random inputs (a whiff, a bad touch)
-//   misread     - how far (in uu) it can misjudge the ball's position; the error drifts and is bigger for weaker tiers,
-//                 which produces missed challenges and poor passes
+//   misread     - how far (in uu) it can misjudge the ball's position; the error drifts, which produces missed
+//                 challenges and poor passes
+//   speedCap    - top car speed in uu/s. Everyone is held below the game's 2300 so play does not look frantic;
+//                 higher ranks win through faster decisions and better reads rather than raw speed
+//   air         - how willing it is to try a scripted air dribble (0 never, 1 whenever it can)
 export const TIER_SETTINGS = {
-  bronze:        { temperature: 3.0,  hold: 3, lapse: 0.12,  misread: 600 },
-  silver:        { temperature: 2.3,  hold: 3, lapse: 0.09,  misread: 450 },
-  gold:          { temperature: 1.8,  hold: 2, lapse: 0.07,  misread: 330 },
-  platinum:      { temperature: 1.4,  hold: 2, lapse: 0.05,  misread: 250 },
-  diamond:       { temperature: 1.1,  hold: 1, lapse: 0.04,  misread: 180 },
-  champion:      { temperature: 0.9,  hold: 1, lapse: 0.03,  misread: 130 },
-  grandchampion: { temperature: 0.7,  hold: 1, lapse: 0.02,  misread: 90 },
-  ssl:           { temperature: 0.55, hold: 1, lapse: 0.015, misread: 60 },
-  pro:           { temperature: 0.45, hold: 1, lapse: 0.012, misread: 40 }
+  bronze:        { temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0 },
+  silver:        { temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0 },
+  gold:          { temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1 },
+  platinum:      { temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25 },
+  diamond:       { temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4 },
+  champion:      { temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6 },
+  grandchampion: { temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8 },
+  ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 60,  speedCap: 1650, air: 0.9 },
+  pro:           { temperature: 0.45, period: 5,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1 }
 };
-
-const DECISION_TICKS = 8;
 
 export class RLMatch {
   constructor(tier) {
@@ -42,10 +43,13 @@ export class RLMatch {
     this.error = this.engine.cars.map(() => [0, 0, 0]);
     this.lapseLeft = this.engine.cars.map(() => 0);
     this.lapseAction = this.engine.cars.map(() => 0);
+    this.air = this.engine.cars.map(() => new AirDribble());
   }
 
   setTier(tier) {
+    this.tierName = tier;
     this.settings = TIER_SETTINGS[tier] || TIER_SETTINGS.bronze;
+    if (this.engine) this.engine.cars.forEach(car => { car.speedCap = this.settings.speedCap; });
   }
 
   async loadPolicy(url) {
@@ -59,6 +63,8 @@ export class RLMatch {
     this.prev.forEach(p => p.fill(0));
     this.error.forEach(e => { e[0] = e[1] = e[2] = 0; });
     this.lapseLeft.fill(0);
+    this.air.forEach(a => a.end(2));
+    this.setTier(this.tierName);
     this.controls = this.engine.cars.map(() => ({}));
   }
 
@@ -101,11 +107,31 @@ export class RLMatch {
 
   /** One 1/120 s physics tick. With no policy loaded yet the cars sit still. */
   tick() {
+    const cars = this.engine.cars;
     if (this.policy) {
-      // Each car decides on its own tick (2 ticks apart) so only one network pass runs per frame.
-      const period = DECISION_TICKS * this.settings.hold;
-      for (let i = 0; i < this.engine.cars.length; i++) {
-        if ((this.tickCount + i * 2) % period === 0) this.decideCar(i);
+      // Each car decides on its own tick so only about one network pass runs per frame.
+      const period = this.settings.period;
+      const spread = Math.max(1, Math.floor(period / cars.length));
+      for (let i = 0; i < cars.length; i++) {
+        const dribble = this.air[i];
+        if (dribble.cooldown > 0) dribble.cooldown -= DT;
+        if (dribble.active) continue;
+        if ((this.tickCount + i * spread) % period === 0) {
+          // Maybe start an air dribble instead of asking the network.
+          if (dribble.cooldown <= 0 && Math.random() < this.settings.air * 0.3 && canStart(this.engine, i)) {
+            dribble.begin();
+          } else {
+            this.decideCar(i);
+          }
+        }
+      }
+      // Active dribbles steer every tick, because aerial control needs a faster loop than the network's.
+      for (let i = 0; i < cars.length; i++) {
+        const dribble = this.air[i];
+        if (!dribble.active) continue;
+        const ctl = airControls(this.engine, i, dribble, this.error[i]);
+        if (ctl) this.controls[i] = ctl;
+        else this.decideCar(i);
       }
     }
     this.engine.tick(this.controls);

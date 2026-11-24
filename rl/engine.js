@@ -356,7 +356,8 @@ function stepCar(car, ctl, dt) {
 
   // Speed limit and movement.
   const speed = length(car.vel);
-  if (speed > CAR_MAX_SPEED) car.vel = mul(car.vel, CAR_MAX_SPEED / speed);
+  const cap = Math.min(car.speedCap || CAR_MAX_SPEED, CAR_MAX_SPEED);
+  if (speed > cap) car.vel = mul(car.vel, cap / speed);
   car.pos = add(car.pos, mul(car.vel, dt));
 
   // Keep the body out of the walls. Wheels are checked always, the roof and corners only in the air.
