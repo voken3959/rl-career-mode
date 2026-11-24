@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
+import { RLMatch, SCENE_SCALE as RL_S } from './rl/rlmode.js';
+import { PAD_POSITIONS as RL_PADS, PAD_IS_BIG as RL_PAD_BIG, BALL_RADIUS as RL_BALL_R } from './rl/constants.js';
 
 /* ============================== CONFIG ============================== */
 
@@ -39,7 +41,12 @@ if (!SKILLS[skillKey]) skillKey = 'bronze';
 
 let skill = SKILLS[skillKey];
 
-const FIELD = { length: 120, width: 80, goalHalf: 8, goalHeight: 8, ballRadius: 1.7, cornerRadius: 9 };
+// ?engine=rl switches to the Rocket League-scale physics (rl/engine.js) driven by the Whiskers neural bot.
+// Everything is drawn at 60 / 5120 scene units per Unreal unit, with scene = (rl y, rl z, rl x).
+const RL_MODE = params.get('engine') === 'rl';
+const FIELD = RL_MODE
+  ? { length: 120, width: 96, goalHalf: 893 * RL_S, goalHeight: 642 * RL_S, ballRadius: RL_BALL_R * RL_S, cornerRadius: 1152 * RL_S }
+  : { length: 120, width: 80, goalHalf: 8, goalHeight: 8, ballRadius: 1.7, cornerRadius: 9 };
 
 const HALF_L = FIELD.length / 2;
 const HALF_W = FIELD.width / 2;
@@ -50,10 +57,10 @@ const GRAVITY = 9.81;
 const BALL_GRAVITY = 14.2;
 const PHYSICS_SUBSTEPS = 8;
 const SOLVER_ITERATIONS = 6;
-const CEILING_Y = 52;
+const CEILING_Y = RL_MODE ? 24 : 52;
 const ARENA_WALL_INSET = 0.6;
 const WALL_HEIGHT = 24;
-const SIDE_RAMP_HEIGHT = 9;
+const SIDE_RAMP_HEIGHT = RL_MODE ? 3 : 9;
 const TARGET_LIMIT_X = HALF_L - 3;
 const TARGET_LIMIT_Z = HALF_W - 4;
 
@@ -323,7 +330,8 @@ function createGoal(side) {
   group.add(crossbar);
 
   const netPoints = [];
-  const backX = side * 5.5;
+  const goalDepth = RL_MODE ? 880 * RL_S : 5.5;
+  const backX = side * goalDepth;
   for (let z = -FIELD.goalHalf; z <= FIELD.goalHalf; z += 1.6) {
     netPoints.push(backX, 0, z, backX, FIELD.goalHeight, z);
   }
@@ -334,7 +342,7 @@ function createGoal(side) {
     for (let y = 0; y <= FIELD.goalHeight; y += 1.6) {
       netPoints.push(0, y, z, backX, y, z);
     }
-    for (let x = 0; x <= 5.5; x += 1.4) {
+    for (let x = 0; x <= goalDepth; x += 1.4) {
       netPoints.push(side * x, 0, z, side * x, FIELD.goalHeight, z);
     }
   });
@@ -351,7 +359,7 @@ function createGoal(side) {
     new THREE.MeshBasicMaterial({ color: side > 0 ? 0xff7a1a : 0x00aaff, transparent: true, opacity: 0.07, side: THREE.DoubleSide })
   );
   glow.rotation.y = Math.PI / 2;
-  glow.position.set(side * 5.6, FIELD.goalHeight / 2, 0);
+  glow.position.set(side * (goalDepth + 0.1), FIELD.goalHeight / 2, 0);
   group.add(glow);
 
   group.position.x = side * HALF_L;
@@ -389,13 +397,17 @@ for (const xSign of [-1, 1]) {
   }
 }
 
-const padPositions = [...bigPadPositions, ...smallPadPositions];
-const bigPadKeys = new Set(bigPadPositions.map(([x, z]) => x + ',' + z));
+const padPositions = RL_MODE
+  ? RL_PADS.map(p => [p[1] * RL_S, p[0] * RL_S])
+  : [...bigPadPositions, ...smallPadPositions];
+const bigPadKeys = RL_MODE
+  ? new Set(padPositions.filter((_, i) => RL_PAD_BIG[i]).map(([x, z]) => x + ',' + z))
+  : new Set(bigPadPositions.map(([x, z]) => x + ',' + z));
 
 const pads = padPositions.map(([x, z]) => {
   const big = bigPadKeys.has(x + ',' + z);
   const blue = x < 0;
-  const size = big ? 3.4 : 2.2;
+  const size = (big ? 3.4 : 2.2) * (RL_MODE ? 0.7 : 1);
   const pad = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),
     new THREE.MeshBasicMaterial({
@@ -409,7 +421,7 @@ const pads = padPositions.map(([x, z]) => {
   pad.position.set(x, 0.08, z);
   scene.add(pad);
 
-  const innerSize = big ? 2.2 : 1.2;
+  const innerSize = (big ? 2.2 : 1.2) * (RL_MODE ? 0.7 : 1);
   const inner = new THREE.Mesh(
     new THREE.PlaneGeometry(innerSize, innerSize),
     new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: big ? 0.45 : 0.25, side: THREE.DoubleSide })
@@ -628,6 +640,8 @@ scene.add(ballGlow);
 
 /* ============================== CARS ============================== */
 
+const CAR_VISUAL = RL_MODE ? (118 * RL_S) / 4.1 : 1;
+
 function createCar(team, isPlayer) {
   const color = team === 'blue' ? 0x1f8fff : 0xff6a1a;
   const group = new THREE.Group();
@@ -671,6 +685,10 @@ function createCar(team, isPlayer) {
   flame.rotation.z = Math.PI / 2;
   flame.position.set(-2.6, 1.0, 0);
   flame.visible = false;
+  if (RL_MODE) {
+    flame.scale.setScalar(CAR_VISUAL);
+    flame.position.multiplyScalar(CAR_VISUAL);
+  }
   chassis.add(flame);
 
   if (isPlayer) {
@@ -680,6 +698,7 @@ function createCar(team, isPlayer) {
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.12;
+    if (RL_MODE) ring.scale.setScalar(CAR_VISUAL);
     group.add(ring);
   }
 
@@ -739,7 +758,7 @@ const carModelTemplate = await (async () => {
     });
     const box = new THREE.Box3().setFromObject(loadedScene);
     const size = box.getSize(new THREE.Vector3());
-    const scale = 4.1 / size.x;
+    const scale = (RL_MODE ? 118 * RL_S : 4.1) / size.x;
     loadedScene.scale.setScalar(scale);
     const box2 = new THREE.Box3().setFromObject(loadedScene);
     const center = box2.getCenter(new THREE.Vector3());
@@ -800,7 +819,122 @@ let goalLocked = false;
 let orbitAngle = 0;
 let elapsed = 0;
 
+/* ============================== RL ENGINE MODE ============================== */
+
+const rl = RL_MODE ? new RLMatch(skillKey) : null;
+let rlStatus = RL_MODE ? 'loading' : 'off';
+if (rl) {
+  rl.loadPolicy('rl/whiskers.bin')
+    .then(() => { rlStatus = 'ready'; addCommentary('Whiskers neural bot loaded. Cars are now driven by the network.'); })
+    .catch(error => { rlStatus = 'failed'; console.error(error); addCommentary('Could not load the neural bot: ' + error.message, true); });
+}
+
+const rlForward = new THREE.Vector3();
+const rlUp = new THREE.Vector3();
+const rlSide = new THREE.Vector3();
+const rlBasis = new THREE.Matrix4();
+const rlSpin = new THREE.Vector3();
+const rlSpinQuat = new THREE.Quaternion();
+
+// Copy the engine state into the scene objects: scene = (rl y, rl z, rl x) scaled by RL_S.
+function syncFromRL() {
+  const engine = rl.engine;
+  engine.cars.forEach((rc, i) => {
+    const car = cars[i];
+    car.pos.set(rc.pos[1] * RL_S, rc.pos[2] * RL_S, rc.pos[0] * RL_S);
+    car.vel.set(rc.vel[1] * RL_S, rc.vel[2] * RL_S, rc.vel[0] * RL_S);
+    car.y = car.pos.y;
+    car.boost = rc.boost;
+    rlForward.set(rc.fwd[1], rc.fwd[2], rc.fwd[0]);
+    rlUp.set(rc.up[1], rc.up[2], rc.up[0]);
+    rlSide.crossVectors(rlForward, rlUp);
+    rlBasis.makeBasis(rlForward, rlUp, rlSide);
+    car.mesh.position.copy(car.pos);
+    car.mesh.quaternion.setFromRotationMatrix(rlBasis);
+    car.chassis.rotation.set(0, 0, 0);
+    car.chassis.position.set(13.9 * RL_S, -17 * RL_S, 0);
+    car.heading = Math.atan2(-rlForward.z, rlForward.x);
+    car.flame.visible = !!rc.boosting;
+  });
+  const rb = engine.ball;
+  ball.pos.set(rb.pos[1] * RL_S, rb.pos[2] * RL_S, rb.pos[0] * RL_S);
+  ball.vel.set(rb.vel[1] * RL_S, rb.vel[2] * RL_S, rb.vel[0] * RL_S);
+  rlSpin.set(rb.angvel[1], rb.angvel[2], rb.angvel[0]);
+  const spinRate = rlSpin.length();
+  if (spinRate > 1e-4) {
+    rlSpin.multiplyScalar(1 / spinRate);
+    rlSpinQuat.setFromAxisAngle(rlSpin, spinRate / 60);
+    ballMesh.quaternion.premultiply(rlSpinQuat);
+  }
+  ballMesh.position.copy(ball.pos);
+  ballGlow.position.copy(ball.pos);
+  engine.pads.forEach((state, i) => {
+    pads[i].mesh.visible = state.active;
+    pads[i].inner.visible = state.active;
+  });
+}
+
+function stepRL(dt) {
+  elapsed += dt;
+  if (rlStatus !== 'ready') {
+    matchState = rlStatus === 'failed' ? 'ERROR' : 'LOADING';
+    return;
+  }
+  const ticks = Math.max(1, Math.round(dt * 120));
+
+  if (goalTimer > 0) {
+    goalTimer -= dt;
+    if (goalTimer <= 0) {
+      resetPositions('Back to the kickoff. Reset and go again.');
+      return;
+    }
+    for (let i = 0; i < ticks; i++) rl.idle();
+    rl.engine.consumeEvents();
+    syncFromRL();
+    return;
+  }
+
+  if (kickoffTimer > 0) {
+    kickoffTimer -= dt;
+    matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
+    if (kickoffTimer <= 0) addCommentary('Kickoff!');
+    return;
+  }
+
+  matchState = 'PLAYING';
+  clock -= dt;
+  for (let i = 0; i < ticks; i++) rl.tick();
+  const events = rl.engine.consumeEvents();
+  syncFromRL();
+
+  if (events.goal) {
+    scoreGoal(events.goal);
+    return;
+  }
+
+  if (clock <= 0) {
+    clock = 180;
+    const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
+    addCommentary('FULL TIME — ' + result + '.', true);
+    scoreBlue = 0;
+    scoreOrange = 0;
+    resetPositions('New match starting.');
+  }
+}
+
 function resetPositions(message) {
+  if (RL_MODE) {
+    kickoffCount++;
+    rl.reset();
+    matchState = 'KICKOFF';
+    kickoffTimer = 2.4;
+    goalTimer = 0;
+    goalLocked = false;
+    ballMesh.quaternion.identity();
+    syncFromRL();
+    if (message) addCommentary(message);
+    return;
+  }
   const starts = [
     { x: -24, z: -12, heading: 0 },
     { x: -42, z: 14, heading: 0 },
@@ -885,6 +1019,10 @@ function scoreGoal(team) {
   addCommentary((team === 'blue' ? 'BLUE' : 'ORANGE') + ' SCORES! ' + rookieText, true);
   goalTimer = 1.8;
   goalLocked = true;
+  if (RL_MODE) {
+    matchState = 'GOAL';
+    return;
+  }
   ball.vel.set(0, 0, 0);
   ball.spin.set(0, 0, 0);
   // Settle the ball deep in the net, clear of the frozen cars and the back netting.
@@ -2050,6 +2188,10 @@ function updateBall(dt) {
 }
 
 function step(dt) {
+  if (RL_MODE) {
+    stepRL(dt);
+    return;
+  }
   elapsed += dt;
 
   if (goalTimer > 0) {
@@ -2118,11 +2260,12 @@ function updateCamera(dt) {
     desiredCamera.set(0, 95, 135);
     lookTarget.set(0, 0, 0);
   } else if (cameraMode === 'chase') {
+    const k = RL_MODE ? 0.5 : 1;
     const forward = new THREE.Vector3(Math.cos(player.heading), 0, -Math.sin(player.heading));
-    desiredCamera.copy(player.pos).addScaledVector(forward, -17).add(new THREE.Vector3(0, 9, 0));
-    lookTarget.copy(player.pos).addScaledVector(forward, 14).add(new THREE.Vector3(0, 2, 0));
+    desiredCamera.copy(player.pos).addScaledVector(forward, -17 * k).add(new THREE.Vector3(0, 9 * k, 0));
+    lookTarget.copy(player.pos).addScaledVector(forward, 14 * k).add(new THREE.Vector3(0, 2 * k, 0));
   } else if (cameraMode === 'ball') {
-    desiredCamera.copy(ball.pos).add(new THREE.Vector3(0, 12, 24));
+    desiredCamera.copy(ball.pos).add(RL_MODE ? new THREE.Vector3(0, 8, 14) : new THREE.Vector3(0, 12, 24));
     lookTarget.copy(ball.pos);
   } else if (cameraMode === 'orbit') {
     orbitAngle += dt * 0.22;
@@ -2182,6 +2325,7 @@ function cycleCameraMode() {
 dom.skillSelect.addEventListener('change', () => {
   skillKey = dom.skillSelect.value;
   skill = SKILLS[skillKey];
+  if (rl) rl.setTier(skillKey);
   applySkillUI();
   scoreBlue = 0;
   scoreOrange = 0;
