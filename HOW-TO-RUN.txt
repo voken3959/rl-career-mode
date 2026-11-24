@@ -1,0 +1,11 @@
+Road To Pro - run on your own computer
+
+1. Install Python 3 (python.org) if you do not have it.
+2. Windows: double-click START-WINDOWS.bat.  Mac/Linux: run ./start-mac-linux.sh
+   (the game opens at http://localhost:8000/index.html - Chrome or Edge work best).
+3. Updating: press the "Updates" button at the bottom-left of the game. If a newer version of the
+   main branch is on GitHub it says "Update now"; press it and the game reloads with the new files.
+   (Changes only appear once they are merged into main.)
+
+The game runs in your browser on your own CPU and GPU, so it is only faster than elsewhere if this
+computer is faster.  Nexto (Pro tier) is CC BY-NC-SA 4.0, non-commercial only: see rl/NEXTO-LICENSE.txt.
