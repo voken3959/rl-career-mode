@@ -2288,9 +2288,11 @@ function animate(now) {
   const frameDelta = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  // The rotate-to-portrait notice covers the match on phones; freeze the sim
-  // behind it instead of burning battery in an invisible landscape view.
-  if (!paused && !portraitOnly.matches) {
+  // The rotate-to-portrait notice covers the match on phones; skip the sim and
+  // the render behind it instead of burning battery in an invisible view.
+  if (portraitOnly.matches) return;
+
+  if (!paused) {
     accumulator += frameDelta * speedMultiplier;
     let iterations = 0;
     while (accumulator >= 1 / 60 && iterations < 10) {
