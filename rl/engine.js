@@ -561,9 +561,18 @@ export class RLEngine {
   /** Put the ball on the centre spot and the cars on their kickoff spawns. */
   resetKickoff() {
     const spawns = [[-2048, -2560], [2048, -2560], [-256, -3840], [256, -3840], [0, -4608]];
+    // Like the real game, each team gets a random selection of the kickoff spots.
+    const picks = [0, 1].map(() => {
+      const pool = spawns.slice();
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      return pool;
+    });
     this.cars.forEach((car, index) => {
       const slot = index % this.carsPerTeam;
-      const base = spawns[slot % spawns.length];
+      const base = picks[car.team][slot];
       const sign = car.team === 0 ? 1 : -1;
       const pos = [base[0] * sign, base[1] * sign, CAR_REST_HEIGHT];
       const toBall = normalize([-pos[0], -pos[1], 0], [0, 1, 0]);
