@@ -228,11 +228,20 @@ export function buildObservation(world, selfIndex, prev, out) {
 
 /* ------------------------------ network ------------------------------ */
 
+// Dense layer, with four independent accumulators so the JIT can keep the multiplies in flight.
 function linear(input, weights, bias, outDim, inDim, output, relu) {
+  const tail = inDim - (inDim % 4);
   for (let o = 0; o < outDim; o++) {
-    let sum = bias[o];
-    const row = o * inDim;
-    for (let i = 0; i < inDim; i++) sum += weights[row + i] * input[i];
+    let a = 0, b = 0, c = 0, d = 0;
+    let row = o * inDim;
+    for (let i = 0; i < tail; i += 4, row += 4) {
+      a += weights[row] * input[i];
+      b += weights[row + 1] * input[i + 1];
+      c += weights[row + 2] * input[i + 2];
+      d += weights[row + 3] * input[i + 3];
+    }
+    let sum = bias[o] + a + b + c + d;
+    for (let i = tail; i < inDim; i++, row++) sum += weights[row] * input[i];
     output[o] = relu && sum < 0 ? 0 : sum;
   }
 }
@@ -259,6 +268,8 @@ export class WhiskersPolicy {
     this.logits = new Float32Array(NUM_ACTIONS);
     this.e0 = new Float32Array(ENC);
     this.e1 = new Float32Array(ENC);
+    this.mean = [new Float32Array(ENC), new Float32Array(ENC)];
+    this.max = [new Float32Array(ENC), new Float32Array(ENC)];
   }
 
   static async load(url) {
@@ -273,8 +284,9 @@ export class WhiskersPolicy {
     input.set(obs.subarray(0, GLOBAL_DIM), 0);
 
     // Per-car encoder, then masked mean and max pooling over teammates and opponents.
-    const mean = [new Float32Array(ENC), new Float32Array(ENC)];
-    const max = [new Float32Array(ENC), new Float32Array(ENC)];
+    const mean = this.mean;
+    const max = this.max;
+    mean[0].fill(0); mean[1].fill(0); max[0].fill(0); max[1].fill(0);
     const count = [0, 0];
     for (let slot = 0; slot < OTHER_SLOTS; slot++) {
       const row = obs.subarray(GLOBAL_DIM + slot * CAR_FEAT, GLOBAL_DIM + (slot + 1) * CAR_FEAT);

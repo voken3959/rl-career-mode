@@ -51,22 +51,26 @@ export class RLMatch {
     this.controls = this.engine.cars.map(() => ({}));
   }
 
-  decide() {
+  decideCar(i) {
     const world = { ball: this.engine.ball, pads: this.engine.pads, cars: this.engine.cars };
-    this.engine.cars.forEach((car, i) => {
-      const action = this.policy.decide(world, i, this.prev[i], this.settings.temperature);
-      const row = ACTION_TABLE[action];
-      this.prev[i].set(row);
-      this.controls[i] = {
-        throttle: row[0], steer: row[1], pitch: row[2], yaw: row[3],
-        roll: row[4], jump: row[5] === 1, boost: row[6] === 1, handbrake: row[7] === 1
-      };
-    });
+    const action = this.policy.decide(world, i, this.prev[i], this.settings.temperature);
+    const row = ACTION_TABLE[action];
+    this.prev[i].set(row);
+    this.controls[i] = {
+      throttle: row[0], steer: row[1], pitch: row[2], yaw: row[3],
+      roll: row[4], jump: row[5] === 1, boost: row[6] === 1, handbrake: row[7] === 1
+    };
   }
 
   /** One 1/120 s physics tick. With no policy loaded yet the cars sit still. */
   tick() {
-    if (this.policy && this.tickCount % (DECISION_TICKS * this.settings.hold) === 0) this.decide();
+    if (this.policy) {
+      // Each car decides on its own tick (2 ticks apart) so only one network pass runs per frame.
+      const period = DECISION_TICKS * this.settings.hold;
+      for (let i = 0; i < this.engine.cars.length; i++) {
+        if ((this.tickCount + i * 2) % period === 0) this.decideCar(i);
+      }
+    }
     this.engine.tick(this.controls);
     this.tickCount++;
   }
