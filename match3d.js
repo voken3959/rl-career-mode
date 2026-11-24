@@ -672,6 +672,10 @@ if (rl) {
   rl.loadPolicy('rl/whiskers.bin')
     .then(() => { rlStatus = 'ready'; addCommentary('Whiskers neural bot loaded. Cars are now driven by the network.'); })
     .catch(error => { rlStatus = 'failed'; console.error(error); addCommentary('Could not load the neural bot: ' + error.message, true); });
+  // Nexto drives the Pro tier. It is optional: if it fails to load, Whiskers plays instead.
+  rl.loadNexto('rl/nexto.bin')
+    .then(() => addCommentary('Nexto loaded for the Pro tier.'))
+    .catch(error => console.warn('Nexto unavailable, using Whiskers for Pro.', error));
 }
 
 const rlForward = new THREE.Vector3();
