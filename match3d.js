@@ -18,6 +18,7 @@ const SKILLS = {
 };
 
 const params = new URLSearchParams(location.search);
+const MOBILE = window.matchMedia('(pointer: coarse)').matches;
 let skillKey = params.get('tier');
 
 if (!skillKey || !SKILLS[skillKey]) {
@@ -126,14 +127,31 @@ camera.position.set(0, 95, 135);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, params.get('engine') === 'classic' ? 2 : 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 dom.container.appendChild(renderer.domElement);
+
+// Portrait screens need a wider lens and a little more distance, otherwise the
+// car and ball fill the narrow view and the rest of the play is cropped away.
+function resizeRenderer() {
+  // visualViewport tracks the space left by mobile browser chrome. Ignore it
+  // while pinch-zoomed so zooming does not shrink the canvas.
+  const vv = window.visualViewport;
+  const zoomed = vv && Math.abs((vv.scale || 1) - 1) > 0.01;
+  const width = Math.max(1, Math.round(vv && !zoomed ? vv.width : window.innerWidth));
+  const height = Math.max(1, Math.round(vv && !zoomed ? vv.height : window.innerHeight));
+  const portrait = height > width;
+  camera.aspect = width / height;
+  camera.fov = portrait ? (MOBILE ? 68 : 62) : 55;
+  camera.updateProjectionMatrix();
+  const maxRatio = MOBILE ? 1.25 : (RL_MODE ? 1.5 : 2);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxRatio));
+  renderer.setSize(width, height);
+}
+resizeRenderer();
 
 /* ============================== LIGHTING ============================== */
 
@@ -2126,8 +2144,9 @@ const camOffset = new THREE.Vector3();
 // They only use positions, never the car's orientation, so flips and wall rides do not turn the camera.
 function updateCamera(dt) {
   const player = cars[Number(cameraMode.slice(3))] || cars[0];
-  const back = RL_MODE ? 6 : 17;
-  const height = RL_MODE ? 2.6 : 9;
+  const portrait = camera.aspect < 1;
+  const back = (RL_MODE ? 6 : 17) * (portrait ? 1.15 : 1);
+  const height = (RL_MODE ? 2.6 : 9) * (portrait ? 1.15 : 1);
 
   camOffset.set(player.pos.x - ball.pos.x, 0, player.pos.z - ball.pos.z);
   if (camOffset.lengthSq() < 0.25) camOffset.set(-Math.cos(player.heading), 0, Math.sin(player.heading));
@@ -2174,13 +2193,15 @@ function setCameraMode(mode) {
   document.querySelectorAll('.cam-btn').forEach(button => {
     button.classList.toggle('active', button.dataset.cam === mode);
   });
-  if (dom.cameraBtn) dom.cameraBtn.textContent = 'Camera · ' + CAMERA_NAMES[mode];
+  if (dom.cameraBtn) dom.cameraBtn.textContent = (MOBILE ? 'Cam · ' : 'Camera · ') + CAMERA_NAMES[mode];
 }
 
 function cycleCameraMode() {
   const modes = ['car0', 'car1', 'car2', 'car3'];
   setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
 }
+
+setCameraMode(cameraMode);
 
 dom.skillSelect.addEventListener('change', () => {
   skillKey = dom.skillSelect.value;
@@ -2240,24 +2261,36 @@ document.addEventListener('keydown', event => {
   }
 });
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+let resizeQueued = false;
+function queueResize() {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    resizeRenderer();
+  });
+}
+window.addEventListener('resize', queueResize);
+window.addEventListener('orientationchange', () => window.setTimeout(resizeRenderer, 250));
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', queueResize);
+}
 
 /* ============================== LOOP ============================== */
 
 let lastTime = performance.now();
 let accumulator = 0;
 let loadingHidden = false;
+const portraitOnly = window.matchMedia('(orientation: landscape) and (max-height: 560px) and (pointer: coarse)');
 
 function animate(now) {
   requestAnimationFrame(animate);
   const frameDelta = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  if (!paused) {
+  // The rotate-to-portrait notice covers the match on phones; freeze the sim
+  // behind it instead of burning battery in an invisible landscape view.
+  if (!paused && !portraitOnly.matches) {
     accumulator += frameDelta * speedMultiplier;
     let iterations = 0;
     while (accumulator >= 1 / 60 && iterations < 10) {
