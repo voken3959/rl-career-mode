@@ -125,10 +125,10 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 camera.position.set(0, 95, 135);
 camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, params.get('engine') === 'classic' ? 2 : 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
@@ -141,7 +141,7 @@ scene.add(new THREE.HemisphereLight(0xb6b4ff, 0x2a1108, 0.55));
 
 const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.0);
 keyLight.position.set(65, 150, 55);
-keyLight.castShadow = true;
+keyLight.castShadow = false;
 keyLight.shadow.mapSize.set(1024, 1024);
 keyLight.shadow.camera.left = -120;
 keyLight.shadow.camera.right = 120;
@@ -440,163 +440,6 @@ const pads = padPositions.map(([x, z]) => {
     inner
   };
 });
-
-/* ============================== STANDS & CROWD ============================== */
-
-function perimeterPoint(t, width, height, radius) {
-  const straightW = width - 2 * radius;
-  const straightH = height - 2 * radius;
-  const arc = Math.PI * radius / 2;
-  const total = 2 * straightW + 2 * straightH + 4 * arc;
-  let distance = (((t % 1) + 1) % 1) * total;
-
-  if (distance < straightW) {
-    return { x: -straightW / 2 + distance, z: -height / 2, nx: 0, nz: -1 };
-  }
-  distance -= straightW;
-
-  if (distance < arc) {
-    const angle = -Math.PI / 2 + distance / radius;
-    return { x: straightW / 2 + radius * Math.cos(angle), z: -straightH / 2 + radius * Math.sin(angle), nx: Math.cos(angle), nz: Math.sin(angle) };
-  }
-  distance -= arc;
-
-  if (distance < straightH) {
-    return { x: width / 2, z: -straightH / 2 + distance, nx: 1, nz: 0 };
-  }
-  distance -= straightH;
-
-  if (distance < arc) {
-    const angle = distance / radius;
-    return { x: straightW / 2 + radius * Math.cos(angle), z: straightH / 2 + radius * Math.sin(angle), nx: Math.cos(angle), nz: Math.sin(angle) };
-  }
-  distance -= arc;
-
-  if (distance < straightW) {
-    return { x: straightW / 2 - distance, z: height / 2, nx: 0, nz: 1 };
-  }
-  distance -= straightW;
-
-  if (distance < arc) {
-    const angle = Math.PI / 2 + distance / radius;
-    return { x: -straightW / 2 + radius * Math.cos(angle), z: straightH / 2 + radius * Math.sin(angle), nx: Math.cos(angle), nz: Math.sin(angle) };
-  }
-  distance -= arc;
-
-  if (distance < straightH) {
-    return { x: -width / 2, z: straightH / 2 - distance, nx: -1, nz: 0 };
-  }
-  distance -= straightH;
-
-  const angle = Math.PI + distance / radius;
-  return { x: -straightW / 2 + radius * Math.cos(angle), z: -straightH / 2 + radius * Math.sin(angle), nx: Math.cos(angle), nz: Math.sin(angle) };
-}
-
-const STAND_W = FIELD.length + 20;
-const STAND_H = FIELD.width + 16;
-const standMaterial = new THREE.MeshStandardMaterial({ color: 0x0f0a18, roughness: 0.95, metalness: 0.05 });
-for (let row = 0; row < 8; row++) {
-  const width = STAND_W + row * 4.6;
-  const height = STAND_H + row * 4.6;
-  const radius = 11 + row * 1.2;
-  const y = 7.5 + row * 2.1;
-
-  [-1, 1].forEach(sideZ => {
-    const box = new THREE.Mesh(new THREE.BoxGeometry(width, 2.1, 4.6), standMaterial);
-    box.position.set(0, y, sideZ * (height / 2));
-    box.receiveShadow = true;
-    scene.add(box);
-  });
-  [-1, 1].forEach(sideX => {
-    const box = new THREE.Mesh(new THREE.BoxGeometry(4.6, 2.1, height), standMaterial);
-    box.position.set(sideX * (width / 2), y, 0);
-    box.receiveShadow = true;
-    scene.add(box);
-  });
-}
-
-const crowdGeometry = new THREE.BoxGeometry(0.9, 1.25, 0.9);
-const crowdMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
-const CROWD_COUNT = 4200;
-const crowd = new THREE.InstancedMesh(crowdGeometry, crowdMaterial, CROWD_COUNT);
-const dummy = new THREE.Object3D();
-const crowdPalette = [0xd8552c, 0xff8a3d, 0x8c2f1d, 0xffc46b, 0x3b1a66, 0x6b2a20, 0xe0a15a];
-for (let i = 0; i < CROWD_COUNT; i++) {
-  const row = Math.floor(Math.random() * 8);
-  const width = STAND_W + row * 4.6;
-  const height = STAND_H + row * 4.6;
-  const radius = 11 + row * 1.2;
-  const point = perimeterPoint(Math.random(), width, height, radius);
-  const outward = rand(0.2, 2.0);
-  dummy.position.set(
-    point.x + point.nx * outward + rand(-0.7, 0.7),
-    9.2 + row * 2.1 + rand(-0.25, 0.25),
-    point.z + point.nz * outward + rand(-0.7, 0.7)
-  );
-  dummy.rotation.y = rand(0, Math.PI * 2);
-  dummy.scale.setScalar(rand(0.75, 1.15));
-  dummy.updateMatrix();
-  crowd.setMatrixAt(i, dummy.matrix);
-  crowd.setColorAt(i, new THREE.Color(crowdPalette[Math.floor(Math.random() * crowdPalette.length)]));
-}
-crowd.instanceMatrix.needsUpdate = true;
-scene.add(crowd);
-
-/* ============================== ROOF & FLOODLIGHTS ============================== */
-
-const beamMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1228, roughness: 0.6, metalness: 0.6 });
-function beamBetween(a, b, radius, material) {
-  const direction = new THREE.Vector3().subVectors(b, a);
-  const length = direction.length();
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 8), material);
-  mesh.position.copy(a).add(b).multiplyScalar(0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
-  scene.add(mesh);
-}
-
-const TOWER_X = HALF_L + 16;
-const TOWER_Z = HALF_W + 14;
-const TOWER_H = 50;
-const towerPositions = [
-  new THREE.Vector3(-TOWER_X, 0, -TOWER_Z), new THREE.Vector3(TOWER_X, 0, -TOWER_Z),
-  new THREE.Vector3(-TOWER_X, 0, TOWER_Z), new THREE.Vector3(TOWER_X, 0, TOWER_Z)
-];
-
-towerPositions.forEach((tower, index) => {
-  const top = new THREE.Vector3(tower.x, TOWER_H, tower.z);
-  beamBetween(tower, top, 0.9, beamMaterial);
-
-  const panel = new THREE.Mesh(
-    new THREE.BoxGeometry(11, 3.2, 1.4),
-    new THREE.MeshStandardMaterial({ color: 0xfff3d6, emissive: 0xffe0a3, emissiveIntensity: 2.2, roughness: 0.3 })
-  );
-  panel.position.copy(top).setY(TOWER_H + 0.8);
-  panel.lookAt(0, 0, 0);
-  scene.add(panel);
-
-  const spot = new THREE.SpotLight(0xffe8c4, 2.6, 320, 0.58, 0.65, 1.4);
-  spot.position.copy(top);
-  spot.target.position.set(0, 0, 0);
-  scene.add(spot);
-  scene.add(spot.target);
-
-  if (index % 2 === 0) {
-    const glow = new THREE.PointLight(0xff9b42, 0.7, 105, 2);
-    glow.position.copy(top);
-    scene.add(glow);
-  }
-});
-
-for (let i = 0; i < towerPositions.length; i++) {
-  const next = towerPositions[(i + 1) % towerPositions.length];
-  beamBetween(
-    new THREE.Vector3(towerPositions[i].x, TOWER_H, towerPositions[i].z),
-    new THREE.Vector3(next.x, TOWER_H, next.z),
-    0.45, beamMaterial
-  );
-}
-beamBetween(new THREE.Vector3(-TOWER_X, TOWER_H, 0), new THREE.Vector3(TOWER_X, TOWER_H, 0), 0.35, beamMaterial);
-beamBetween(new THREE.Vector3(0, TOWER_H, -TOWER_Z), new THREE.Vector3(0, TOWER_H, TOWER_Z), 0.35, beamMaterial);
 
 /* ============================== BALL ============================== */
 
