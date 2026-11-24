@@ -41,9 +41,9 @@ if (!SKILLS[skillKey]) skillKey = 'bronze';
 
 let skill = SKILLS[skillKey];
 
-// ?engine=rl switches to the Rocket League-scale physics (rl/engine.js) driven by the Whiskers neural bot.
+// Default engine; ?engine=classic restores the old one. It is the Rocket League-scale physics (rl/engine.js) driven by the Whiskers neural bot.
 // Everything is drawn at 60 / 5120 scene units per Unreal unit, with scene = (rl y, rl z, rl x).
-const RL_MODE = params.get('engine') === 'rl';
+const RL_MODE = params.get('engine') !== 'classic';
 const FIELD = RL_MODE
   ? { length: 120, width: 96, goalHalf: 893 * RL_S, goalHeight: 642 * RL_S, ballRadius: RL_BALL_R * RL_S, cornerRadius: 1152 * RL_S }
   : { length: 120, width: 80, goalHalf: 8, goalHeight: 8, ballRadius: 1.7, cornerRadius: 9 };
