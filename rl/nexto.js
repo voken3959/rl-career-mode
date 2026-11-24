@@ -70,6 +70,15 @@ export class NextoPolicy {
       l2W: take(D * FF), l2B: take(D),
       n1W: take(D), n1B: take(D), n2W: take(D), n2B: take(D), n3W: take(D), n3B: take(D)
     }));
+    // The attention input projection holds query, key and value matrices one after another; slice them once.
+    for (const block of this.blocks) {
+      block.Wq = block.inW.subarray(0, D * D);
+      block.Wk = block.inW.subarray(D * D, 2 * D * D);
+      block.Wv = block.inW.subarray(2 * D * D, 3 * D * D);
+      block.bq = block.inB.subarray(0, D);
+      block.bk = block.inB.subarray(D, 2 * D);
+      block.bv = block.inB.subarray(2 * D, 3 * D);
+    }
     this.a0 = { w: take(ACT * 8), b: take(ACT) };
     this.a1 = { w: take(ACT * ACT), b: take(ACT) };
     this.a2 = { w: take(ACT * ACT), b: take(ACT) };
@@ -100,6 +109,7 @@ export class NextoPolicy {
     this.ffOut = new Float32Array(D);
     this.out32 = new Float32Array(ACT);
     this.scores = new Float32Array(HEADS * 64);
+    this.weights = new Float32Array(n);
     this.sized = 0;
   }
 
@@ -187,11 +197,12 @@ export class NextoPolicy {
       kv[base + POS] -= px;
       kv[base + POS + 1] -= py;
       kv[base + POS + 2] -= pz;
-      for (const col of [POS, VEL, FWD, UPV, ANG]) {
-        const x = kv[base + col];
-        const y = kv[base + col + 1];
-        kv[base + col] = ct * x - st * y;
-        kv[base + col + 1] = st * x + ct * y;
+      for (let k = 0; k < 5; k++) {
+        const col = base + POS + k * 3;
+        const x = kv[col];
+        const y = kv[col + 1];
+        kv[col] = ct * x - st * y;
+        kv[col + 1] = st * x + ct * y;
       }
     }
     return entities;
@@ -216,12 +227,7 @@ export class NextoPolicy {
       layerNorm(x, 0, block.n1W, block.n1B, this.queryNorm, 0);
       for (let r = 0; r < entities; r++) layerNorm(kve, r * D, block.n2W, block.n2B, this.kvNorm, r * D);
 
-      const Wq = block.inW.subarray(0, D * D);
-      const Wk = block.inW.subarray(D * D, 2 * D * D);
-      const Wv = block.inW.subarray(2 * D * D, 3 * D * D);
-      const bq = block.inB.subarray(0, D);
-      const bk = block.inB.subarray(D, 2 * D);
-      const bv = block.inB.subarray(2 * D, 3 * D);
+      const { Wq, Wk, Wv, bq, bk, bv } = block;
       const Q = this.tmpQ;
       matvec(Wq, bq, this.queryNorm, 0, Q, 0, D, D, false);
       for (let r = 0; r < entities; r++) {
@@ -290,7 +296,7 @@ export class NextoPolicy {
     let top = -Infinity;
     for (let i = 0; i < n; i++) if (logits[i] > top) top = logits[i];
     let total = 0;
-    const weights = new Float32Array(n);
+    const weights = this.weights;
     for (let i = 0; i < n; i++) {
       weights[i] = Math.exp((logits[i] - top) / temperature);
       total += weights[i];

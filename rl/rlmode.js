@@ -31,7 +31,7 @@ export const TIER_SETTINGS = {
   champion:      { temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6 },
   grandchampion: { temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8 },
   ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 60,  speedCap: 1650, air: 0.9 },
-  pro:           { temperature: 0.45, period: 5,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1, bot: 'nexto' }
+  pro:           { temperature: 0.45, period: 8,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1, bot: 'nexto' }
 };
 
 export class RLMatch {
