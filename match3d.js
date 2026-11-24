@@ -126,7 +126,7 @@ camera.position.set(0, 95, 135);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, params.get('engine') === 'classic' ? 2 : 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -142,7 +142,7 @@ scene.add(new THREE.HemisphereLight(0xb6b4ff, 0x2a1108, 0.55));
 const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.0);
 keyLight.position.set(65, 150, 55);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.mapSize.set(1024, 1024);
 keyLight.shadow.camera.left = -120;
 keyLight.shadow.camera.right = 120;
 keyLight.shadow.camera.top = 95;

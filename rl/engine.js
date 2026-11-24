@@ -85,6 +85,8 @@ function distanceAt(zone, x, y, z) {
 export function arenaQuery(x, y, z) {
   const zone = inGoalZone(x, y, z);
   const d = distanceAt(zone, x, y, z);
+  // Callers only use the normal near a surface, so skip the six extra distance evaluations when far away.
+  if (d > 150) return { d, n: [0, 0, 1] };
   const e = 2;
   const n = normalize([
     distanceAt(zone, x + e, y, z) - distanceAt(zone, x - e, y, z),
