@@ -653,7 +653,7 @@ let scoreOrange = 0;
 let clock = 180;
 let paused = false;
 let speedMultiplier = 1;
-let cameraMode = 'broadcast';
+let cameraMode = 'car0';
 let matchState = 'KICKOFF';
 let kickoffTimer = 1.6;
 let kickoffPhase = 0;
@@ -2119,30 +2119,25 @@ const desiredCamera = new THREE.Vector3();
 const lookTarget = new THREE.Vector3();
 const currentLook = new THREE.Vector3();
 
+const CAMERA_NAMES = { car0: 'Blue 1', car1: 'Blue 2', car2: 'Orange 1', car3: 'Orange 2' };
+const camOffset = new THREE.Vector3();
+
+// Player cameras always sit behind a car on the line from the ball through the car and look at the ball.
+// They only use positions, never the car's orientation, so flips and wall rides do not turn the camera.
 function updateCamera(dt) {
-  const player = cars[0];
+  const player = cars[Number(cameraMode.slice(3))] || cars[0];
+  const back = RL_MODE ? 6 : 17;
+  const height = RL_MODE ? 2.6 : 9;
 
-  if (cameraMode === 'broadcast') {
-    desiredCamera.set(0, 95, 135);
-    lookTarget.set(0, 0, 0);
-  } else if (cameraMode === 'chase') {
-    const k = RL_MODE ? 0.5 : 1;
-    const forward = new THREE.Vector3(Math.cos(player.heading), 0, -Math.sin(player.heading));
-    desiredCamera.copy(player.pos).addScaledVector(forward, -17 * k).add(new THREE.Vector3(0, 9 * k, 0));
-    lookTarget.copy(player.pos).addScaledVector(forward, 14 * k).add(new THREE.Vector3(0, 2 * k, 0));
-  } else if (cameraMode === 'ball') {
-    desiredCamera.copy(ball.pos).add(RL_MODE ? new THREE.Vector3(0, 8, 14) : new THREE.Vector3(0, 12, 24));
-    lookTarget.copy(ball.pos);
-  } else if (cameraMode === 'orbit') {
-    orbitAngle += dt * 0.22;
-    desiredCamera.set(Math.cos(orbitAngle) * 135, 68, Math.sin(orbitAngle) * 135);
-    lookTarget.set(0, 0, 0);
-  } else {
-    desiredCamera.set(0, 185, 0.1);
-    lookTarget.set(0, 0, 0);
-  }
+  camOffset.set(player.pos.x - ball.pos.x, 0, player.pos.z - ball.pos.z);
+  if (camOffset.lengthSq() < 0.25) camOffset.set(-Math.cos(player.heading), 0, Math.sin(player.heading));
+  camOffset.normalize();
 
-  const cameraBlend = 1 - Math.exp(-dt * 5);
+  desiredCamera.copy(player.pos).addScaledVector(camOffset, back);
+  desiredCamera.y = Math.max(player.pos.y, 0) + height;
+  lookTarget.copy(ball.pos);
+
+  const cameraBlend = 1 - Math.exp(-dt * 8);
   camera.position.lerp(desiredCamera, cameraBlend);
   currentLook.lerp(lookTarget, cameraBlend);
   camera.lookAt(currentLook);
@@ -2179,12 +2174,11 @@ function setCameraMode(mode) {
   document.querySelectorAll('.cam-btn').forEach(button => {
     button.classList.toggle('active', button.dataset.cam === mode);
   });
-  const label = mode.charAt(0).toUpperCase() + mode.slice(1);
-  if (dom.cameraBtn) dom.cameraBtn.textContent = 'Camera · ' + label;
+  if (dom.cameraBtn) dom.cameraBtn.textContent = 'Camera · ' + CAMERA_NAMES[mode];
 }
 
 function cycleCameraMode() {
-  const modes = ['broadcast', 'chase', 'ball', 'orbit', 'top'];
+  const modes = ['car0', 'car1', 'car2', 'car3'];
   setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
 }
 
@@ -2231,6 +2225,8 @@ document.addEventListener('keydown', event => {
   if (event.key === ' ') {
     event.preventDefault();
     dom.playBtn.click();
+  } else if (event.key >= '1' && event.key <= '4') {
+    setCameraMode('car' + (Number(event.key) - 1));
   } else if (event.key.toLowerCase() === 'c') {
     cycleCameraMode();
   } else if (event.key.toLowerCase() === 'r') {
