@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { RLMatch, SCENE_SCALE as RL_S } from './rl/rlmode.js';
 import { PAD_POSITIONS as RL_PADS, PAD_IS_BIG as RL_PAD_BIG, BALL_RADIUS as RL_BALL_R } from './rl/constants.js';
 
@@ -510,34 +509,34 @@ function createCar(team, isPlayer) {
   group.add(chassis);
   const wheels = [];
 
-  // Use the supplied Fennec GLB as the car body. It is loaded once and cloned
-  // per car; its wheels are part of the model, so they pitch with the chassis.
-  if (carModelTemplate) {
-    const model = carModelTemplate.clone(true);
-    model.traverse(child => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-        // Clone materials so team colors do not leak between cars.
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material = child.material.map(mat => (mat ? mat.clone() : mat));
-          } else {
-            child.material = child.material.clone();
-          }
-        }
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        mats.forEach(mat => {
-          if (mat && mat.name === 'Fennec_-_Body') mat.color.setHex(color);
-        });
-      }
-    });
-    chassis.add(model);
-  } else {
-    const fallback = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 }));
-    fallback.position.y = 1.05;
-    chassis.add(fallback);
-  }
+  // The body is a plain box the size of the Octane hitbox (118 x 36 x 84 uu, centred 13.9 uu forward and
+  // 20.75 uu above the car origin) with four wheels. unit converts uu to scene units; the chassis origin is
+  // on the ground under the car origin, with x shifted so the hitbox is centred.
+  const unit = RL_MODE ? RL_S : 4.1 / 118;
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(118 * unit, 36.2 * unit, 84.2 * unit),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.3 })
+  );
+  body.position.y = (17 + 20.75) * unit;
+  body.castShadow = true;
+  chassis.add(body);
+
+  // Wheel positions relative to the hitbox centre: front axle forward, rear axle back.
+  const wheelRadius = 12 * unit;
+  const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 9 * unit, 16);
+  wheelGeometry.rotateX(Math.PI / 2); // axle along z
+  const tyreMaterial = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.9 });
+  const hubMaterial = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.5, metalness: 0.4 });
+  [[37, 34], [37, -34], [-48, 34], [-48, -34]].forEach(([wx, wz]) => {
+    const wheel = new THREE.Group();
+    wheel.position.set(wx * unit, wheelRadius, wz * unit);
+    wheel.add(new THREE.Mesh(wheelGeometry, tyreMaterial));
+    // A light bar across the hub so the wheel's rotation is visible.
+    const hub = new THREE.Mesh(new THREE.BoxGeometry(wheelRadius * 1.5, wheelRadius * 0.28, 9.6 * unit), hubMaterial);
+    wheel.add(hub);
+    chassis.add(wheel);
+    wheels.push(wheel);
+  });
 
   const flame = new THREE.Mesh(
     new THREE.ConeGeometry(0.38, 1.6, 10),
@@ -614,33 +613,6 @@ function createCar(team, isPlayer) {
   };
 }
 
-const carModelTemplate = await (async () => {
-  try {
-    const loadedScene = await new Promise((resolve, reject) => {
-      new GLTFLoader().load('assets/fennec.glb', (gltf) => resolve(gltf.scene), undefined, reject);
-    });
-    const box = new THREE.Box3().setFromObject(loadedScene);
-    const size = box.getSize(new THREE.Vector3());
-    const scale = (RL_MODE ? 118 * RL_S : 4.1) / size.x;
-    loadedScene.scale.setScalar(scale);
-    const box2 = new THREE.Box3().setFromObject(loadedScene);
-    const center = box2.getCenter(new THREE.Vector3());
-    loadedScene.position.x -= center.x;
-    loadedScene.position.z -= center.z;
-    loadedScene.position.y -= box2.min.y;
-    loadedScene.traverse(child => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
-    return loadedScene;
-  } catch (error) {
-    console.error('Could not load car model', error);
-    return null;
-  }
-})();
-
 const cars = [
   createCar('blue', true),
   createCar('blue', false),
@@ -690,6 +662,10 @@ if (rl) {
   rl.loadPolicy('rl/whiskers.bin')
     .then(() => { rlStatus = 'ready'; addCommentary('Whiskers neural bot loaded. Cars are now driven by the network.'); })
     .catch(error => { rlStatus = 'failed'; console.error(error); addCommentary('Could not load the neural bot: ' + error.message, true); });
+  // Nexto drives the Pro tier. It is optional: if it fails to load, Whiskers plays instead.
+  rl.loadNexto('rl/nexto.bin')
+    .then(() => addCommentary('Nexto loaded for the Pro tier.'))
+    .catch(error => console.warn('Nexto unavailable, using Whiskers for Pro.', error));
 }
 
 const rlForward = new THREE.Vector3();
@@ -718,6 +694,16 @@ function syncFromRL() {
     car.chassis.position.set(13.9 * RL_S, -17 * RL_S, 0);
     car.heading = Math.atan2(-rlForward.z, rlForward.x);
     car.flame.visible = !!rc.boosting;
+
+    // Wheels: front pair steer with the car's steering input, all four roll with the speed along the car.
+    const input = rl.controls[i] || {};
+    car.steerAngle += ((input.steer || 0) * 0.45 - car.steerAngle) * 0.3;
+    const forwardSpeed = rc.vel[0] * rc.fwd[0] + rc.vel[1] * rc.fwd[1] + rc.vel[2] * rc.fwd[2];
+    car.wheelSpin = (car.wheelSpin + (forwardSpeed / 12) / 60) % (Math.PI * 2);
+    car.wheels.forEach((wheel, index) => {
+      wheel.rotation.y = index < 2 ? car.steerAngle : 0;
+      wheel.rotation.z = car.wheelSpin;
+    });
   });
   const rb = engine.ball;
   ball.pos.set(rb.pos[1] * RL_S, rb.pos[2] * RL_S, rb.pos[0] * RL_S);

@@ -3,6 +3,7 @@
 
 import { RLEngine } from './engine.js';
 import { WhiskersPolicy, ACTION_TABLE } from './whiskers.js';
+import { NextoPolicy } from './nexto.js';
 import { FIELD_Y, DT } from './constants.js';
 import { AirDribble, canStart, airControls } from './airdribble.js';
 
@@ -19,6 +20,7 @@ export const SCENE_SCALE = 60 / FIELD_Y;
 //                 challenges and poor passes
 //   speedCap    - top car speed in uu/s. Everyone is held below the game's 2300 so play does not look frantic;
 //                 higher ranks win through faster decisions and better reads rather than raw speed
+//   bot         - 'nexto' uses the Nexto network (needs rl/nexto.bin), otherwise Whiskers
 //   air         - how willing it is to try a scripted air dribble (0 never, 1 whenever it can)
 export const TIER_SETTINGS = {
   bronze:        { temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0 },
@@ -29,13 +31,14 @@ export const TIER_SETTINGS = {
   champion:      { temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6 },
   grandchampion: { temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8 },
   ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 60,  speedCap: 1650, air: 0.9 },
-  pro:           { temperature: 0.45, period: 5,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1 }
+  pro:           { temperature: 0.45, period: 5,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1, bot: 'nexto' }
 };
 
 export class RLMatch {
   constructor(tier) {
     this.engine = new RLEngine(2);
     this.policy = null;
+    this.nexto = null;
     this.setTier(tier);
     this.prev = this.engine.cars.map(() => new Float32Array(8));
     this.controls = this.engine.cars.map(() => ({}));
@@ -54,6 +57,11 @@ export class RLMatch {
 
   async loadPolicy(url) {
     this.policy = await WhiskersPolicy.load(url);
+  }
+
+  /** Nexto (Grand Champion level, CC BY-NC-SA) drives the tiers marked bot: 'nexto'. Optional; falls back to Whiskers. */
+  async loadNexto(url) {
+    this.nexto = await NextoPolicy.load(url);
   }
 
   /** Reset to a fresh kickoff. */
@@ -95,7 +103,8 @@ export class RLMatch {
       this.lapseAction[i] = Math.floor(Math.random() * ACTION_TABLE.length);
       action = this.lapseAction[i];
     } else {
-      action = this.policy.decide(world, i, this.prev[i], temperature);
+      const brain = this.settings.bot === 'nexto' && this.nexto ? this.nexto : this.policy;
+      action = brain.decide(world, i, this.prev[i], temperature);
     }
     const row = ACTION_TABLE[action];
     this.prev[i].set(row);
