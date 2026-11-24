@@ -30,8 +30,8 @@ export const TIER_SETTINGS = {
   diamond:       { temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4 },
   champion:      { temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6 },
   grandchampion: { temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8 },
-  ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 60,  speedCap: 1650, air: 0.9 },
-  pro:           { temperature: 0.45, period: 8,  lapse: 0.012, misread: 40,  speedCap: 1700, air: 1, bot: 'nexto' }
+  ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9 },
+  pro:           { temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto' }
 };
 
 export class RLMatch {
