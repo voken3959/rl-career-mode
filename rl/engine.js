@@ -367,12 +367,37 @@ function stepCar(car, ctl, dt) {
     const p = localPoint(car, right, probe);
     const q = arenaQuery(p[0], p[1], p[2]);
     if (q.d < 0) {
-      car.pos = sub(car.pos, mul(q.n, q.d));
-      const vn = dot(car.vel, q.n);
-      if (vn < 0) car.vel = sub(car.vel, mul(q.n, vn * 1.1));
+      // Push the body out gradually and answer with an impulse at the contact point, so a nose-first landing
+      // pitches the car down onto its wheels instead of popping it back into the air.
+      car.pos = sub(car.pos, mul(q.n, q.d * 0.8));
+      contactImpulse(car, p, q.n);
     }
   }
   updateFlags(car);
+}
+
+// Approximate inertia of the hitbox as a uniform box: about forward, right and up.
+const INERTIA = [CAR_MASS / 12 * (84.2 ** 2 + 36.2 ** 2), CAR_MASS / 12 * (118 ** 2 + 36.2 ** 2), CAR_MASS / 12 * (118 ** 2 + 84.2 ** 2)];
+const BODY_RESTITUTION = 0.05;
+
+// Rigid-body impulse for the car touching a surface (inward normal n) at world point p, including the spin it causes.
+function contactImpulse(car, p, n) {
+  const lever = sub(p, car.pos);
+  const pointVel = add(car.vel, cross(car.angvel, lever));
+  const closing = dot(pointVel, n);
+  if (closing >= 0) return;
+  const right = carRight(car);
+  const torqueArm = cross(lever, n);
+  const spinChange = add(add(
+    mul(car.fwd, dot(torqueArm, car.fwd) / INERTIA[0]),
+    mul(right, dot(torqueArm, right) / INERTIA[1])),
+    mul(car.up, dot(torqueArm, car.up) / INERTIA[2]));
+  const effective = 1 / CAR_MASS + dot(cross(spinChange, lever), n);
+  const j = -(1 + BODY_RESTITUTION) * closing / effective;
+  car.vel = add(car.vel, mul(n, j / CAR_MASS));
+  car.angvel = add(car.angvel, mul(spinChange, j));
+  const spin = length(car.angvel);
+  if (spin > CAR_MAX_ANG) car.angvel = mul(car.angvel, CAR_MAX_ANG / spin);
 }
 
 function hitboxCorners() {

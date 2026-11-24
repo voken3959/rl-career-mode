@@ -672,11 +672,12 @@ const rlForward = new THREE.Vector3();
 const rlUp = new THREE.Vector3();
 const rlSide = new THREE.Vector3();
 const rlBasis = new THREE.Matrix4();
+const rlTarget = new THREE.Quaternion();
 const rlSpin = new THREE.Vector3();
 const rlSpinQuat = new THREE.Quaternion();
 
 // Copy the engine state into the scene objects: scene = (rl y, rl z, rl x) scaled by RL_S.
-function syncFromRL() {
+function syncFromRL(snap = false) {
   const engine = rl.engine;
   engine.cars.forEach((rc, i) => {
     const car = cars[i];
@@ -689,7 +690,10 @@ function syncFromRL() {
     rlSide.crossVectors(rlForward, rlUp);
     rlBasis.makeBasis(rlForward, rlUp, rlSide);
     car.mesh.position.copy(car.pos);
-    car.mesh.quaternion.setFromRotationMatrix(rlBasis);
+    rlTarget.setFromRotationMatrix(rlBasis);
+    // Smooth the drawn orientation a little so landings and flips do not look like they snap.
+    if (snap) car.mesh.quaternion.copy(rlTarget);
+    else car.mesh.quaternion.slerp(rlTarget, 0.55);
     car.chassis.rotation.set(0, 0, 0);
     car.chassis.position.set(13.9 * RL_S, -17 * RL_S, 0);
     car.heading = Math.atan2(-rlForward.z, rlForward.x);
@@ -780,7 +784,7 @@ function resetPositions(message) {
     goalTimer = 0;
     goalLocked = false;
     ballMesh.quaternion.identity();
-    syncFromRL();
+    syncFromRL(true);
     if (message) addCommentary(message);
     return;
   }
