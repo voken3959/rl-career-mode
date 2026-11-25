@@ -7,6 +7,7 @@ import { NextoPolicy } from './nexto.js';
 import { FIELD_Y, DT } from './constants.js';
 import { AirDribble, canStart, airControls } from './airdribble.js';
 import { Rotation } from './rotation.js';
+import { landingAssist, rightingRoll } from './recovery.js';
 
 /** Metres-ish scene units per Unreal unit: the 10240 uu long arena becomes 120 scene units. */
 export const SCENE_SCALE = 60 / FIELD_Y;
@@ -23,17 +24,18 @@ export const SCENE_SCALE = 60 / FIELD_Y;
 //                 higher ranks win through faster decisions and better reads rather than raw speed
 //   bot         - 'nexto' uses the Nexto network (needs rl/nexto.bin), otherwise Whiskers
 //   rotation    - how reliably it holds a covering position when it is not the one on the ball (0 never, 1 always)
+//   recovery    - chance per jump that it air-rolls to line the wheels up for landing and flips back over when stuck
 //   air         - how willing it is to try a scripted air dribble (0 never, 1 whenever it can)
 export const TIER_SETTINGS = {
-  bronze:        { temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0, rotation: 0 },
-  silver:        { temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0, rotation: 0.2 },
-  gold:          { temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1, rotation: 0.4 },
-  platinum:      { temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25, rotation: 0.55 },
-  diamond:       { temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4, rotation: 0.7 },
-  champion:      { temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6, rotation: 0.8 },
-  grandchampion: { temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8, rotation: 0.9 },
-  ssl:           { temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
-  pro:           { temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto', rotation: 1 }
+  bronze:        { recovery: 0.1, temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0, rotation: 0 },
+  silver:        { recovery: 0.25, temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0, rotation: 0.2 },
+  gold:          { recovery: 0.45, temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1, rotation: 0.4 },
+  platinum:      { recovery: 0.6, temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25, rotation: 0.55 },
+  diamond:       { recovery: 0.75, temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4, rotation: 0.7 },
+  champion:      { recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6, rotation: 0.8 },
+  grandchampion: { recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8, rotation: 0.9 },
+  ssl:           { recovery: 0.97, temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
+  pro:           { recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto', rotation: 1 }
 };
 
 export class RLMatch {
@@ -50,6 +52,10 @@ export class RLMatch {
     this.lapseAction = this.engine.cars.map(() => 0);
     this.air = this.engine.cars.map(() => new AirDribble());
     this.rotation = new Rotation(this.engine.cars.length);
+    this.wasGround = this.engine.cars.map(() => true);
+    this.assistOn = this.engine.cars.map(() => false);
+    this.flipTicks = this.engine.cars.map(() => 0);
+    this.final = this.engine.cars.map(() => ({}));
   }
 
   setTier(tier) {
@@ -76,6 +82,9 @@ export class RLMatch {
     this.lapseLeft.fill(0);
     this.air.forEach(a => a.end(2));
     this.rotation.reset();
+    this.wasGround.fill(true);
+    this.assistOn.fill(false);
+    this.flipTicks.fill(0);
     this.setTier(this.tierName);
     this.controls = this.engine.cars.map(() => ({}));
   }
@@ -159,8 +168,42 @@ export class RLMatch {
         if (this.rotation.override[i] && !this.air[i].active) this.controls[i] = this.rotation.controls[i];
       }
     }
-    this.engine.tick(this.controls);
+    this.engine.tick(this.recover());
     this.tickCount++;
+  }
+
+  /** Air-roll layer: landing assist and getting back onto the wheels. Returns the controls to actually apply. */
+  recover() {
+    const cars = this.engine.cars;
+    const chance = this.settings.recovery || 0;
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i];
+      const ctl = this.controls[i];
+      this.final[i] = ctl;
+      if (car.isDemoed || car.onGround) {
+        this.wasGround[i] = true;
+        this.flipTicks[i] = 0;
+        continue;
+      }
+      if (this.wasGround[i]) { this.assistOn[i] = Math.random() < chance; this.wasGround[i] = false; }
+      if (!this.assistOn[i] || car.isFlipping || this.air[i].active) continue;
+
+      // Stuck on its roof or side with the flip back: jump while rolling the right way to flip over.
+      if (this.flipTicks[i] > 0 || (car.contactNow && car.up[2] < -0.3 && car.canDodge && car.surfaceTime > 0.5)) {
+        if (this.flipTicks[i] === 0) this.flipTicks[i] = 4;
+        this.flipTicks[i]--;
+        this.final[i] = { ...ctl, jump: this.flipTicks[i] > 1, roll: rightingRoll(car), pitch: 0, yaw: 0, boost: false };
+        continue;
+      }
+      // Coming down (or tumbling near a surface): roll and pitch the wheels toward whatever is below.
+      const falling = car.vel[2] < 0 || car.up[2] < 0.5;
+      const ballNear = Math.hypot(this.engine.ball.pos[0] - car.pos[0], this.engine.ball.pos[1] - car.pos[1], this.engine.ball.pos[2] - car.pos[2]) < 450;
+      if (falling && !ballNear && !ctl.jump) {
+        const a = landingAssist(car);
+        if (a) this.final[i] = { ...ctl, pitch: a.pitch, roll: a.roll, yaw: a.yaw };
+      }
+    }
+    return this.final;
   }
 
   /** Stop the cars acting but keep the physics running (used after a goal). */

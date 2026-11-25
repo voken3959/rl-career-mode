@@ -82,11 +82,11 @@ function distanceAt(zone, x, y, z) {
 }
 
 /** Signed distance to the arena surface and the inward unit normal at that point. */
-export function arenaQuery(x, y, z) {
+export function arenaQuery(x, y, z, full = false) {
   const zone = inGoalZone(x, y, z);
   const d = distanceAt(zone, x, y, z);
   // Callers only use the normal near a surface, so skip the six extra distance evaluations when far away.
-  if (d > 150) return { d, n: [0, 0, 1] };
+  if (d > 150 && !full) return { d, n: [0, 0, 1] };
   const e = 2;
   const n = normalize([
     distanceAt(zone, x + e, y, z) - distanceAt(zone, x - e, y, z),
@@ -148,6 +148,8 @@ export function newCar(team) {
     flipTimer: 0,
     flipLocal: [0, 0],
     leaveTimer: 0,
+    surfaceTime: 0,
+    contactNow: false,
     jumpHeldPrev: false,
     touchingBall: false,
     boosting: false,
@@ -167,6 +169,8 @@ const localPoint = (car, right, p) => [
 function hitboxCenter(car, right) {
   return localPoint(car, right, HITBOX_OFFSET);
 }
+
+const DODGE_RESET_DELAY = 0.45; // seconds of body contact before the flip is available again
 
 function canDodgeNow(car) {
   return !car.hasDoubleJumped && !car.hasFlipped && car.timeSinceJump < DODGE_WINDOW;
@@ -363,15 +367,28 @@ function stepCar(car, ctl, dt) {
   // Keep the body out of the walls. Wheels are checked always, the roof and corners only in the air.
   right = carRight(car);
   const probes = grounded ? [] : WHEELS.concat(hitboxCorners());
+  let touching = false;
   for (const probe of probes) {
     const p = localPoint(car, right, probe);
     const q = arenaQuery(p[0], p[1], p[2]);
+    if (q.d < 0.5) touching = true;
     if (q.d < 0) {
       // Push the body out gradually and answer with an impulse at the contact point, so a nose-first landing
       // pitches the car down onto its wheels instead of popping it back into the air.
       car.pos = sub(car.pos, mul(q.n, q.d * 0.8));
       contactImpulse(car, p, q.n);
     }
+  }
+  // Resting on the roof or a wall without the wheels down: after a short cooldown the flip comes back,
+  // like Rocket League, so a car on its roof can jump and flip itself over.
+  car.contactNow = touching && !grounded;
+  car.surfaceTime = car.contactNow ? car.surfaceTime + dt : Math.max(0, car.surfaceTime - dt * 4);
+  if (car.contactNow && car.surfaceTime > DODGE_RESET_DELAY && !canDodgeNow(car)) {
+    car.hasDoubleJumped = false;
+    car.hasFlipped = false;
+    car.isFlipping = false;
+    car.flipTimer = 0;
+    car.timeSinceJump = 0;
   }
   updateFlags(car);
 }
