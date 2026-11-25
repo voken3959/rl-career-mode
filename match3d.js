@@ -87,7 +87,9 @@ const dom = {
   replayBtn: document.getElementById('replayBtn'),
   cameraBtn: document.getElementById('cameraBtn'),
   speedBtn: document.getElementById('speedBtn'),
-  backBtn: document.getElementById('backBtn')
+  backBtn: document.getElementById('backBtn'),
+  modeSelect: document.getElementById('modeSelect'),
+  modeBtn: document.getElementById('modeBtn')
 };
 
 /* ============================== UTILS ============================== */
@@ -623,16 +625,34 @@ function createCar(team, isPlayer) {
   };
 }
 
-const cars = [
-  createCar('blue', true),
-  createCar('blue', false),
-  createCar('orange', false),
-  createCar('orange', false)
+// Three cars per side are built once; the selected mode (1v1, 2v2 or 3v3) decides which take part. `cars` holds
+// the active ones, blue first then orange, in the same order as the engine's cars.
+const allCars = [
+  createCar('blue', true), createCar('blue', false), createCar('blue', false),
+  createCar('orange', false), createCar('orange', false), createCar('orange', false)
 ];
+const cars = [];
+let teamSize = 2;
 
-cars.forEach((car, index) => { car.index = index; });
-cars[1].role = 'support';
-cars[3].role = 'support';
+function setTeamSize(n) {
+  teamSize = Math.max(1, Math.min(3, n));
+  cars.length = 0;
+  for (let i = 0; i < teamSize; i++) cars.push(allCars[i]);
+  for (let i = 0; i < teamSize; i++) cars.push(allCars[3 + i]);
+  allCars.forEach(car => { car.mesh.visible = cars.includes(car); });
+  cars.forEach((car, index) => { car.index = index; car.role = 'attack'; });
+  cars.forEach((car, index) => { if (index % teamSize !== 0) car.role = 'support'; });
+}
+
+function carLabel(index) {
+  return (index < teamSize ? 'Blue ' : 'Orange ') + (index % teamSize + 1);
+}
+
+let initialSize = Number(params.get('size') || params.get('mode'));
+if (!initialSize) {
+  try { initialSize = Number(localStorage.getItem('rtpTeamSize')); } catch (e) { initialSize = 0; }
+}
+setTeamSize(RL_MODE && initialSize >= 1 && initialSize <= 3 ? initialSize : 2);
 
 /* ============================== MATCH STATE ============================== */
 
@@ -666,7 +686,7 @@ let elapsed = 0;
 
 /* ============================== RL ENGINE MODE ============================== */
 
-const rl = RL_MODE ? new RLMatch(skillKey) : null;
+const rl = RL_MODE ? new RLMatch(skillKey, teamSize) : null;
 let rlStatus = RL_MODE ? 'loading' : 'off';
 if (rl) {
   rl.loadPolicy('rl/whiskers.bin')
@@ -766,7 +786,7 @@ function handleRLEvents(events) {
   for (const touch of events.touches) {
     const car = engine.cars[touch.car];
     const team = car.team === 0 ? 'blue' : 'orange';
-    const name = CAMERA_NAMES['car' + touch.car];
+    const name = carLabel(touch.car);
     if (rlShot && rlShot.team !== car.team && now - rlShot.time < 4) {
       notify('SAVE', name, team);
       rlShot = null;
@@ -786,12 +806,12 @@ function announceGoal(team) {
   const now = rl.engine.time;
   const side = team === 'blue' ? 0 : 1;
   if (rlLastTouch) {
-    const name = CAMERA_NAMES['car' + rlLastTouch.car];
+    const name = carLabel(rlLastTouch.car);
     const scorerTeam = rlLastTouch.team === 0 ? 'blue' : 'orange';
     if (rlLastTouch.team === side) {
       notify('GOAL', name, scorerTeam);
       if (rlPrevTouch && rlPrevTouch.team === side && rlPrevTouch.car !== rlLastTouch.car && now - rlPrevTouch.time < 6) {
-        notify('ASSIST', CAMERA_NAMES['car' + rlPrevTouch.car], scorerTeam);
+        notify('ASSIST', carLabel(rlPrevTouch.car), scorerTeam);
       }
     } else {
       notify('OWN GOAL', name, scorerTeam);
@@ -2218,13 +2238,12 @@ const desiredCamera = new THREE.Vector3();
 const lookTarget = new THREE.Vector3();
 const currentLook = new THREE.Vector3();
 
-const CAMERA_NAMES = { car0: 'Blue 1', car1: 'Blue 2', car2: 'Orange 1', car3: 'Orange 2' };
 const camOffset = new THREE.Vector3();
 
 // Player cameras always sit behind a car on the line from the ball through the car and look at the ball.
 // They only use positions, never the car's orientation, so flips and wall rides do not turn the camera.
 function updateCamera(dt) {
-  const player = replay.active ? cars[replay.focus] : (cars[Number(cameraMode.slice(3))] || cars[0]);
+  const player = replay.active ? (cars[replay.focus] || cars[0]) : (cars[Number(cameraMode.slice(3))] || cars[0]);
   const portrait = camera.aspect < 1;
   const widen = portrait ? 1.15 : 1;
   const above = Math.max(0, ball.pos.y - player.pos.y);
@@ -2287,15 +2306,43 @@ function setCameraMode(mode) {
   document.querySelectorAll('.cam-btn').forEach(button => {
     button.classList.toggle('active', button.dataset.cam === mode);
   });
-  if (dom.cameraBtn) dom.cameraBtn.textContent = (MOBILE ? 'Cam · ' : 'Camera · ') + CAMERA_NAMES[mode];
+  if (dom.cameraBtn) dom.cameraBtn.textContent = (MOBILE ? 'Cam · ' : 'Camera · ') + carLabel(Number(mode.slice(3)));
 }
 
 function cycleCameraMode() {
-  const modes = ['car0', 'car1', 'car2', 'car3'];
+  const modes = cars.map((car, i) => 'car' + i);
   setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
 }
 
-setCameraMode(cameraMode);
+// Camera buttons follow the cars in the current mode.
+function refreshCameraButtons() {
+  document.querySelectorAll('.cam-btn').forEach(button => {
+    const index = Number(button.dataset.cam.slice(3));
+    button.hidden = index >= cars.length;
+    if (index < cars.length) button.innerHTML = '<span>' + (index + 1) + '</span> ' + carLabel(index);
+  });
+  if (Number(cameraMode.slice(3)) >= cars.length) setCameraMode('car0');
+  else setCameraMode(cameraMode);
+  if (dom.modeSelect) dom.modeSelect.value = String(teamSize);
+  if (dom.modeBtn) dom.modeBtn.textContent = teamSize + 'v' + teamSize;
+}
+
+function setMode(n) {
+  if (!RL_MODE || n === teamSize) { refreshCameraButtons(); return; }
+  try { localStorage.setItem('rtpTeamSize', String(n)); } catch (e) { /* private mode */ }
+  setTeamSize(n);
+  rl.resize(n);
+  refreshCameraButtons();
+  scoreBlue = 0;
+  scoreOrange = 0;
+  clock = 180;
+  if (replay.active) endReplay();
+  resetPositions('New ' + n + 'v' + n + ' match.');
+}
+
+refreshCameraButtons();
+if (dom.modeSelect) dom.modeSelect.addEventListener('change', () => setMode(Number(dom.modeSelect.value)));
+if (dom.modeBtn) dom.modeBtn.addEventListener('click', () => setMode(teamSize % 3 + 1));
 
 dom.skillSelect.addEventListener('change', () => {
   skillKey = dom.skillSelect.value;
@@ -2339,7 +2386,7 @@ document.addEventListener('keydown', event => {
   if (event.key === ' ') {
     event.preventDefault();
     dom.playBtn.click();
-  } else if (event.key >= '1' && event.key <= '4') {
+  } else if (event.key >= '1' && event.key <= String(cars.length)) {
     setCameraMode('car' + (Number(event.key) - 1));
   } else if (event.key.toLowerCase() === 'c') {
     cycleCameraMode();

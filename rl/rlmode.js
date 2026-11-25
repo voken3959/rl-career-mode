@@ -39,11 +39,18 @@ export const TIER_SETTINGS = {
 };
 
 export class RLMatch {
-  constructor(tier) {
-    this.engine = new RLEngine(2);
+  constructor(tier, perTeam = 2) {
     this.policy = null;
     this.nexto = null;
+    this.tierName = tier;
+    this.initCars(perTeam);
     this.setTier(tier);
+  }
+
+  /** (Re)build the engine and all per-car state for perTeam cars on each side. The networks are kept. */
+  initCars(perTeam) {
+    this.perTeam = perTeam;
+    this.engine = new RLEngine(perTeam);
     this.prev = this.engine.cars.map(() => new Float32Array(8));
     this.controls = this.engine.cars.map(() => ({}));
     this.tickCount = 0;
@@ -56,6 +63,12 @@ export class RLMatch {
     this.assistOn = this.engine.cars.map(() => false);
     this.flipTicks = this.engine.cars.map(() => 0);
     this.final = this.engine.cars.map(() => ({}));
+  }
+
+  /** Switch to 1v1, 2v2 or 3v3. */
+  resize(perTeam) {
+    this.initCars(perTeam);
+    this.setTier(this.tierName);
   }
 
   setTier(tier) {

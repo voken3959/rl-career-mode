@@ -570,7 +570,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   }
   .controls {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     width: 100%;
     gap: 3px;
   }
@@ -672,3 +672,5 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   .control-btn { min-height: 0; padding: 7px 8px; font-size: 9px; }
   .goal-flash div { font-size: 44px; }
 }
+
+.cam-btn[hidden] { display: none; }
