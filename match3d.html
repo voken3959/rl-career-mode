@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Road To Pro — Match Center</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="match3d.css?v=11" />
+  <link rel="stylesheet" href="match3d.css?v=12" />
   <script type="importmap">
     {
       "imports": {
@@ -115,18 +115,12 @@
     <div class="hint"><kbd>Space</kbd> pause <kbd>C</kbd> camera <kbd>R</kbd> restart <kbd>+</kbd><kbd>−</kbd> speed</div>
   </div>
 
-  <div class="rotate-notice" id="rotateNotice" role="status" aria-live="polite">
-    <svg class="rotate-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="7" y="2.5" width="10" height="19" rx="2.2" />
-      <path d="M10.5 5.5h3" />
-      <path d="M2.5 9a5 5 0 0 1 5-5M21.5 15a5 5 0 0 1-5 5" />
-      <path d="M2.5 6.5V9H5M21.5 17.5V15h-2.5" />
-    </svg>
-    <div class="rotate-title">Rotate to portrait</div>
-    <p class="rotate-copy">The Match Center is built for vertical screens.</p>
+  <div class="replay-badge" id="replayBadge" hidden>
+    <span class="replay-dot"></span><strong>REPLAY</strong>
+    <button type="button" id="replaySkip">Skip</button>
   </div>
 
-  <script type="module" src="match3d.js?v=45"></script>
+  <script type="module" src="match3d.js?v=46"></script>
   <script src="local-update.js"></script>
 </body>
 </html>
