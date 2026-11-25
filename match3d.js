@@ -83,7 +83,6 @@ const dom = {
   statBoost: document.getElementById('statBoost'),
   boostValue: document.getElementById('boostValue'),
   boostFill: document.getElementById('boostFill'),
-  commentary: document.getElementById('commentary'),
   playBtn: document.getElementById('playBtn'),
   replayBtn: document.getElementById('replayBtn'),
   cameraBtn: document.getElementById('cameraBtn'),
@@ -102,12 +101,23 @@ function angleDelta(a, b) {
   return d;
 }
 
-function addCommentary(text, goal) {
-  const line = document.createElement('div');
-  line.className = 'comment-line' + (goal ? ' goal' : '');
-  line.textContent = text;
-  dom.commentary.insertBefore(line, dom.commentary.firstChild);
-  while (dom.commentary.children.length > 14) dom.commentary.removeChild(dom.commentary.lastChild);
+// Pop-up notices (Shot, Save, Goal, Assist...) stacked under the scoreboard.
+function notify(title, detail, team) {
+  const box = document.getElementById('notifications');
+  if (!box) return;
+  const notice = document.createElement('div');
+  notice.className = 'notice ' + (team || 'neutral');
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  notice.appendChild(heading);
+  if (detail) {
+    const sub = document.createElement('span');
+    sub.textContent = detail;
+    notice.appendChild(sub);
+  }
+  box.appendChild(notice);
+  while (box.children.length > 3) box.removeChild(box.firstChild);
+  window.setTimeout(() => notice.remove(), 2400);
 }
 
 function formatClock(seconds) {
@@ -660,11 +670,11 @@ const rl = RL_MODE ? new RLMatch(skillKey) : null;
 let rlStatus = RL_MODE ? 'loading' : 'off';
 if (rl) {
   rl.loadPolicy('rl/whiskers.bin')
-    .then(() => { rlStatus = 'ready'; addCommentary('Whiskers neural bot loaded. Cars are now driven by the network.'); })
-    .catch(error => { rlStatus = 'failed'; console.error(error); addCommentary('Could not load the neural bot: ' + error.message, true); });
+    .then(() => { rlStatus = 'ready'; })
+    .catch(error => { rlStatus = 'failed'; console.error(error); notify('BOT FAILED TO LOAD', error.message, 'neutral'); });
   // Nexto drives the Pro tier. It is optional: if it fails to load, Whiskers plays instead.
   rl.loadNexto('rl/nexto.bin')
-    .then(() => addCommentary('Nexto loaded for the Pro tier.'))
+    .then(() => console.info('Nexto loaded for the Pro tier.'))
     .catch(error => console.warn('Nexto unavailable, using Whiskers for Pro.', error));
 }
 
@@ -727,6 +737,73 @@ function syncFromRL(snap = false) {
   });
 }
 
+// Shot / Save / Goal / Assist notices, worked out from the engine's ball touches.
+let rlLastTouch = null;
+let rlPrevTouch = null;
+let rlShot = null;
+
+// Will the ball, left alone, reach the goal this team attacks? Rough ballistic path with a floor bounce.
+function headingAtGoal(engine, team) {
+  const attack = team === 0 ? 1 : -1;
+  const ballState = engine.ball;
+  const speedToGoal = ballState.vel[1] * attack;
+  if (speedToGoal < 400) return false;
+  const t = (5120 - attack * ballState.pos[1]) / speedToGoal;
+  if (t > 3.5) return false;
+  const x = ballState.pos[0] + ballState.vel[0] * t;
+  let z;
+  if (ballState.pos[2] < 150 && Math.abs(ballState.vel[2]) < 200) z = ballState.pos[2];
+  else {
+    z = ballState.pos[2] + ballState.vel[2] * t - 325 * t * t;
+    if (z < 0) z = -z * 0.6;
+  }
+  return Math.abs(x) < 950 && z < 730;
+}
+
+function handleRLEvents(events) {
+  const engine = rl.engine;
+  const now = engine.time;
+  for (const touch of events.touches) {
+    const car = engine.cars[touch.car];
+    const team = car.team === 0 ? 'blue' : 'orange';
+    const name = CAMERA_NAMES['car' + touch.car];
+    if (rlShot && rlShot.team !== car.team && now - rlShot.time < 4) {
+      notify('SAVE', name, team);
+      rlShot = null;
+    }
+    if (rlLastTouch && rlLastTouch.car !== touch.car) rlPrevTouch = rlLastTouch;
+    rlLastTouch = { car: touch.car, team: car.team, time: now };
+    const alreadyShooting = rlShot && rlShot.team === car.team && now - rlShot.time < 1.5;
+    if (!alreadyShooting && headingAtGoal(engine, car.team)) {
+      notify('SHOT ON GOAL', name, team);
+      rlShot = { team: car.team, time: now, car: touch.car };
+    }
+  }
+  if (rlShot && now - rlShot.time > 4) rlShot = null;
+}
+
+function announceGoal(team) {
+  const now = rl.engine.time;
+  const side = team === 'blue' ? 0 : 1;
+  if (rlLastTouch) {
+    const name = CAMERA_NAMES['car' + rlLastTouch.car];
+    const scorerTeam = rlLastTouch.team === 0 ? 'blue' : 'orange';
+    if (rlLastTouch.team === side) {
+      notify('GOAL', name, scorerTeam);
+      if (rlPrevTouch && rlPrevTouch.team === side && rlPrevTouch.car !== rlLastTouch.car && now - rlPrevTouch.time < 6) {
+        notify('ASSIST', CAMERA_NAMES['car' + rlPrevTouch.car], scorerTeam);
+      }
+    } else {
+      notify('OWN GOAL', name, scorerTeam);
+    }
+  } else {
+    notify('GOAL', '', team);
+  }
+  rlLastTouch = null;
+  rlPrevTouch = null;
+  rlShot = null;
+}
+
 function stepRL(dt) {
   elapsed += dt;
   if (rlStatus !== 'ready') {
@@ -750,7 +827,6 @@ function stepRL(dt) {
   if (kickoffTimer > 0) {
     kickoffTimer -= dt;
     matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
-    if (kickoffTimer <= 0) addCommentary('Kickoff!');
     return;
   }
 
@@ -759,6 +835,7 @@ function stepRL(dt) {
   for (let i = 0; i < ticks; i++) rl.tick();
   const events = rl.engine.consumeEvents();
   syncFromRL();
+  handleRLEvents(events);
 
   if (events.goal) {
     scoreGoal(events.goal);
@@ -768,7 +845,7 @@ function stepRL(dt) {
   if (clock <= 0) {
     clock = 180;
     const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
-    addCommentary('FULL TIME — ' + result + '.', true);
+    notify('FULL TIME', result, 'neutral');
     scoreBlue = 0;
     scoreOrange = 0;
     resetPositions('New match starting.');
@@ -779,13 +856,15 @@ function resetPositions(message) {
   if (RL_MODE) {
     kickoffCount++;
     rl.reset();
+    rlLastTouch = null;
+    rlPrevTouch = null;
+    rlShot = null;
     matchState = 'KICKOFF';
     kickoffTimer = 2.4;
     goalTimer = 0;
     goalLocked = false;
     ballMesh.quaternion.identity();
     syncFromRL(true);
-    if (message) addCommentary(message);
     return;
   }
   const starts = [
@@ -859,7 +938,6 @@ function resetPositions(message) {
   goalLocked = false;
 
   syncTransforms();
-  if (message) addCommentary(message);
 }
 
 function scoreGoal(team) {
@@ -870,10 +948,7 @@ function scoreGoal(team) {
   document.body.appendChild(flash);
   window.setTimeout(() => flash.remove(), 1100);
 
-  const rookieText = skillKey === 'bronze'
-    ? 'The rookie completely misjudged that one — lucky bounce finds the net.'
-    : 'Clinical finish from the attack.';
-  addCommentary((team === 'blue' ? 'BLUE' : 'ORANGE') + ' SCORES! ' + rookieText, true);
+  if (RL_MODE) announceGoal(team);
   goalTimer = 1.8;
   goalLocked = true;
   if (RL_MODE) {
@@ -1709,11 +1784,9 @@ function resolveCarBallCollision(car) {
       ballGlow.intensity = 1.5;
 
       if (car.isPlayer && skillKey === 'bronze' && Math.random() < 0.12) {
-        addCommentary('He actually made clean contact! Don\'t get used to it.');
       }
     }
   } else if (newHit && car.isPlayer && Math.random() < 0.18) {
-    addCommentary('Mistimed challenge — only a glancing touch.');
   }
 
   if (ball.spin.lengthSq() > 2025) ball.spin.setLength(45);
@@ -1778,7 +1851,6 @@ function resolveBallPinch() {
         vy: +pop.toFixed(1),
         time: +elapsed.toFixed(2)
       };
-      addCommentary('Pinch! The ball is squeezed straight up between both cars.');
       return;
     }
   }
@@ -1823,7 +1895,6 @@ function updateBoostPads(dt) {
       pad.mesh.visible = false;
       pad.inner.visible = false;
       if (car.isPlayer) {
-        addCommentary(pad.big ? 'Big pad — boost tank refilled!' : 'Small boost pad collected.');
       }
       break;
     }
@@ -2078,7 +2149,6 @@ function step(dt) {
   if (kickoffTimer > 0) {
     kickoffTimer -= dt;
     matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
-    if (kickoffTimer <= 0) addCommentary(skillKey === 'bronze' ? 'Kickoff! The rookie is already scrambling.' : 'Kickoff! Both teams break from the centre in formation.');
     updateBall(dt);
     return;
   }
@@ -2114,7 +2184,7 @@ function step(dt) {
   if (clock <= 0) {
     clock = 180;
     const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
-    addCommentary('FULL TIME — ' + result + '.', true);
+    notify('FULL TIME', result, 'neutral');
     scoreBlue = 0;
     scoreOrange = 0;
     resetPositions('New match starting.');
@@ -2214,7 +2284,6 @@ dom.skillSelect.addEventListener('change', () => {
   scoreBlue = 0;
   scoreOrange = 0;
   clock = 180;
-  addCommentary('Skill changed to ' + skill.label + '. Restarting the match.');
   resetPositions('Fresh kickoff at ' + skill.label + ' level.');
 });
 

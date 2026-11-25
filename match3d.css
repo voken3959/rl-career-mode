@@ -245,7 +245,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   overflow: hidden;
 }
 .panel-left { left: 24px; }
-.panel-right { right: 24px; width: 282px; }
 
 .panel-block { padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .panel-block:last-child { border-bottom: 0; }
@@ -346,32 +345,41 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   font-weight: 600;
 }
 
-.panel-right .panel-heading { padding: 14px 16px 0; margin-bottom: 6px; }
-.live-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--green);
+/* Pop-up notices: Shot, Save, Goal, Assist */
+.notifications {
+  position: fixed;
+  top: 92px;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
-.commentary {
-  max-height: calc(100vh - 190px);
-  padding: 2px 16px 14px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  touch-action: pan-y;
+.notice {
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 8px 18px;
+  border-left: 4px solid var(--muted);
+  border-radius: 6px;
+  background: rgba(8, 12, 22, 0.84);
+  color: var(--text);
+  text-align: center;
+  animation: notice 2.4s ease forwards;
 }
-.comment-line {
-  padding: 9px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.55;
-  animation: feed 0.2s ease;
+.notice.blue { border-left-color: #1f8fff; border-right: 4px solid #1f8fff; }
+.notice.orange { border-left-color: #ff6a1a; border-right: 4px solid #ff6a1a; }
+.notice strong { font-size: 17px; font-weight: 800; letter-spacing: 0.14em; }
+.notice span { margin-top: 2px; font-size: 11px; opacity: 0.8; letter-spacing: 0.06em; }
+@keyframes notice {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  8% { opacity: 1; transform: translateY(0) scale(1); }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
 }
-.comment-line:first-child { color: var(--text); }
-.comment-line:last-child { border-bottom: 0; }
-.comment-line.goal { color: var(--gold); }
-@keyframes feed { from { opacity: 0; transform: translateY(-3px); } }
 
 /* ============================== BOOST GAUGE ============================== */
 
@@ -529,7 +537,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 }
 
 @media (max-width: 1180px) {
-  .panel-right { display: none; }
 }
 
 @media (max-width: 900px) {
