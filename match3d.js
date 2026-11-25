@@ -128,8 +128,8 @@ function formatClock(seconds) {
 /* ============================== THREE SETUP ============================== */
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x08060c);
-scene.fog = new THREE.FogExp2(0x0c0816, 0.0014);
+scene.background = new THREE.Color(0x2a3350);
+scene.fog = new THREE.FogExp2(0x2a3350, 0.0008);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 1600);
 camera.position.set(0, 95, 135);
@@ -139,7 +139,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'h
 renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.25;
+renderer.toneMappingExposure = 1.7;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 dom.container.appendChild(renderer.domElement);
 
@@ -164,9 +164,9 @@ resizeRenderer();
 
 /* ============================== LIGHTING ============================== */
 
-scene.add(new THREE.HemisphereLight(0xb6b4ff, 0x2a1108, 0.55));
+scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x6a5a50, 1.5));
 
-const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.0);
+const keyLight = new THREE.DirectionalLight(0xfff4e2, 2.6);
 keyLight.position.set(65, 150, 55);
 keyLight.castShadow = false;
 keyLight.shadow.mapSize.set(1024, 1024);
@@ -179,7 +179,7 @@ keyLight.shadow.camera.far = 380;
 keyLight.shadow.bias = -0.0005;
 scene.add(keyLight);
 
-const fillLight = new THREE.DirectionalLight(0x8f5cff, 0.65);
+const fillLight = new THREE.DirectionalLight(0xb9c8ff, 1.2);
 fillLight.position.set(-85, 70, -60);
 scene.add(fillLight);
 
@@ -192,8 +192,8 @@ const sky = new THREE.Mesh(
     depthWrite: false,
     fog: false,
     uniforms: {
-      topColor: { value: new THREE.Color(0x05030a) },
-      bottomColor: { value: new THREE.Color(0x1a0f24) }
+      topColor: { value: new THREE.Color(0x1c2540) },
+      bottomColor: { value: new THREE.Color(0x4a5a85) }
     },
     vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform vec3 topColor; uniform vec3 bottomColor; varying vec3 vPos; void main(){ float h = normalize(vPos).y * 0.5 + 0.5; gl_FragColor = vec4(mix(bottomColor, topColor, h), 1.0); }'
@@ -210,9 +210,9 @@ function createFieldTexture() {
   const ctx = canvas.getContext('2d');
 
   const gradient = ctx.createLinearGradient(0, 0, 2048, 1350);
-  gradient.addColorStop(0, '#123a28');
-  gradient.addColorStop(0.5, '#0f3223');
-  gradient.addColorStop(1, '#123526');
+  gradient.addColorStop(0, '#1f6a47');
+  gradient.addColorStop(0.5, '#1b5e40');
+  gradient.addColorStop(1, '#1f654a');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 2048, 1350);
 
@@ -270,7 +270,7 @@ scene.add(field);
 
 /* ============================== WALLS ============================== */
 
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x171122, roughness: 0.45, metalness: 0.35, transparent: true, opacity: 0.22, depthWrite: false });
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4466, roughness: 0.45, metalness: 0.35, transparent: true, opacity: 0.22, depthWrite: false });
 const trimBlue = new THREE.MeshStandardMaterial({ color: 0x140a24, emissive: 0x7a00ff, emissiveIntensity: 0.85, roughness: 0.4 });
 
 function addWallBox(w, h, d, x, y, z) {
