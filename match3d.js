@@ -815,12 +815,25 @@ function stepRL(dt) {
   if (goalTimer > 0) {
     goalTimer -= dt;
     if (goalTimer <= 0) {
-      resetPositions('Back to the kickoff. Reset and go again.');
+      if (replayBuffer.length > 40) {
+        goalTimer = 0;
+        startReplay();
+      } else {
+        resetPositions('Back to the kickoff. Reset and go again.');
+      }
       return;
     }
     for (let i = 0; i < ticks; i++) rl.idle();
     rl.engine.consumeEvents();
     syncFromRL();
+    return;
+  }
+
+  if (replay.active) {
+    if (stepReplay(dt)) {
+      endReplay();
+      resetPositions('Back to the kickoff. Reset and go again.');
+    }
     return;
   }
 
@@ -835,6 +848,7 @@ function stepRL(dt) {
   for (let i = 0; i < ticks; i++) rl.tick();
   const events = rl.engine.consumeEvents();
   syncFromRL();
+  recordReplayFrame();
   handleRLEvents(events);
 
   if (events.goal) {
@@ -855,6 +869,8 @@ function stepRL(dt) {
 function resetPositions(message) {
   if (RL_MODE) {
     kickoffCount++;
+    replayBuffer.length = 0;
+    if (replay.active) endReplay();
     rl.reset();
     rlLastTouch = null;
     rlPrevTouch = null;
@@ -948,7 +964,12 @@ function scoreGoal(team) {
   document.body.appendChild(flash);
   window.setTimeout(() => flash.remove(), 1100);
 
-  if (RL_MODE) announceGoal(team);
+  if (RL_MODE) {
+    replay.focus = rlLastTouch ? rlLastTouch.car : 0;
+    replay.team = team;
+    explodeAt(ball.pos, team);
+    announceGoal(team);
+  }
   goalTimer = 1.8;
   goalLocked = true;
   if (RL_MODE) {
@@ -2203,7 +2224,7 @@ const camOffset = new THREE.Vector3();
 // Player cameras always sit behind a car on the line from the ball through the car and look at the ball.
 // They only use positions, never the car's orientation, so flips and wall rides do not turn the camera.
 function updateCamera(dt) {
-  const player = cars[Number(cameraMode.slice(3))] || cars[0];
+  const player = replay.active ? cars[replay.focus] : (cars[Number(cameraMode.slice(3))] || cars[0]);
   const portrait = camera.aspect < 1;
   const widen = portrait ? 1.15 : 1;
   const above = Math.max(0, ball.pos.y - player.pos.y);
@@ -2348,21 +2369,218 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', queueResize);
 }
 
+/* ============================== GOAL EXPLOSION AND REPLAY ============================== */
+
+// Goal explosion: a burst of glowing sparks, a flash and an expanding shockwave at the ball. One Points object and
+// two meshes, no lights, so it adds almost nothing to the frame cost.
+const FX_COUNT = 180;
+const FX_LIFE = 1.5;
+const fx = {
+  t: FX_LIFE, active: false,
+  pos: new Float32Array(FX_COUNT * 3),
+  vel: new Float32Array(FX_COUNT * 3),
+  col: new Float32Array(FX_COUNT * 3),
+  base: new Float32Array(FX_COUNT * 3)
+};
+const fxTexture = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(canvas);
+})();
+const fxGeometry = new THREE.BufferGeometry();
+fxGeometry.setAttribute('position', new THREE.BufferAttribute(fx.pos, 3));
+fxGeometry.setAttribute('color', new THREE.BufferAttribute(fx.col, 3));
+const fxPoints = new THREE.Points(fxGeometry, new THREE.PointsMaterial({
+  size: 2.2, map: fxTexture, vertexColors: true, transparent: true, depthWrite: false,
+  blending: THREE.AdditiveBlending, sizeAttenuation: true, fog: false
+}));
+fxPoints.frustumCulled = false;
+fxPoints.visible = false;
+scene.add(fxPoints);
+const fxFlash = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 20, 14),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+);
+const fxWave = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 28, 18),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false })
+);
+fxFlash.visible = fxWave.visible = false;
+scene.add(fxFlash, fxWave);
+
+function explodeAt(position, team) {
+  const color = new THREE.Color(team === 'blue' ? 0x2f9bff : 0xff7a1f);
+  const white = new THREE.Color(0xfff4d0);
+  for (let i = 0; i < FX_COUNT; i++) {
+    // Random direction on a sphere, biased upward a little so the burst fans out over the net.
+    const u = Math.random() * 2 - 1;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(1 - u * u);
+    const speed = rand(8, 38);
+    fx.pos[i * 3] = position.x;
+    fx.pos[i * 3 + 1] = position.y;
+    fx.pos[i * 3 + 2] = position.z;
+    fx.vel[i * 3] = Math.cos(a) * r * speed;
+    fx.vel[i * 3 + 1] = (u + 0.25) * speed;
+    fx.vel[i * 3 + 2] = Math.sin(a) * r * speed;
+    const mix = Math.random() < 0.3 ? white : color;
+    fx.base[i * 3] = mix.r;
+    fx.base[i * 3 + 1] = mix.g;
+    fx.base[i * 3 + 2] = mix.b;
+  }
+  fx.t = 0;
+  fx.active = true;
+  fxPoints.visible = fxFlash.visible = fxWave.visible = true;
+  fxFlash.position.copy(position);
+  fxWave.position.copy(position);
+  fxWave.material.color.copy(color);
+}
+
+function updateFx(dt) {
+  if (!fx.active) return;
+  fx.t += dt;
+  const life = fx.t / FX_LIFE;
+  if (life >= 1) {
+    fx.active = false;
+    fxPoints.visible = fxFlash.visible = fxWave.visible = false;
+    return;
+  }
+  const drag = Math.exp(-dt * 1.6);
+  const fade = (1 - life) * (1 - life);
+  for (let i = 0; i < FX_COUNT; i++) {
+    const k = i * 3;
+    fx.vel[k] *= drag;
+    fx.vel[k + 1] = fx.vel[k + 1] * drag - 14 * dt;
+    fx.vel[k + 2] *= drag;
+    fx.pos[k] += fx.vel[k] * dt;
+    fx.pos[k + 1] = Math.max(0.2, fx.pos[k + 1] + fx.vel[k + 1] * dt);
+    fx.pos[k + 2] += fx.vel[k + 2] * dt;
+    fx.col[k] = fx.base[k] * fade;
+    fx.col[k + 1] = fx.base[k + 1] * fade;
+    fx.col[k + 2] = fx.base[k + 2] * fade;
+  }
+  fxGeometry.attributes.position.needsUpdate = true;
+  fxGeometry.attributes.color.needsUpdate = true;
+  const flashT = Math.min(1, fx.t / 0.35);
+  fxFlash.scale.setScalar(1 + flashT * 7);
+  fxFlash.material.opacity = 0.85 * (1 - flashT);
+  const waveT = Math.min(1, fx.t / 0.9);
+  fxWave.scale.setScalar(2 + waveT * 22);
+  fxWave.material.opacity = 0.5 * (1 - waveT) * (1 - waveT);
+}
+
+// Replay: the last few seconds before every goal are recorded as car/ball transforms and played back in slow motion
+// from the scorer's chase camera.
+const REPLAY_FRAMES = 300;       // 5 s at 60 steps per second
+const REPLAY_SPEED = 0.7;        // frames advanced per step
+const REPLAY_STRIDE = 8;        // per car: position (3), rotation (4), flame (1)
+const replayBuffer = [];
+const replay = { active: false, frames: null, pos: 0, hold: 0, focus: 0, ending: false, exploded: false };
+const replayQuatA = new THREE.Quaternion();
+const replayQuatB = new THREE.Quaternion();
+const replayBadge = document.getElementById('replayBadge');
+const replaySkip = document.getElementById('replaySkip');
+
+function recordReplayFrame() {
+  const frame = new Float32Array(cars.length * REPLAY_STRIDE + 7);
+  let o = 0;
+  for (const car of cars) {
+    car.mesh.position.toArray(frame, o);
+    car.mesh.quaternion.toArray(frame, o + 3);
+    frame[o + 7] = car.flame.visible ? 1 : 0;
+    o += REPLAY_STRIDE;
+  }
+  ballMesh.position.toArray(frame, o);
+  ballMesh.quaternion.toArray(frame, o + 3);
+  replayBuffer.push(frame);
+  if (replayBuffer.length > REPLAY_FRAMES) replayBuffer.shift();
+}
+
+function applyReplayFrame(position) {
+  const frames = replay.frames;
+  const i = Math.min(frames.length - 1, Math.floor(position));
+  const j = Math.min(frames.length - 1, i + 1);
+  const t = position - i;
+  const a = frames[i];
+  const b = frames[j];
+  const place = (mesh, o) => {
+    mesh.position.set(
+      a[o] + (b[o] - a[o]) * t,
+      a[o + 1] + (b[o + 1] - a[o + 1]) * t,
+      a[o + 2] + (b[o + 2] - a[o + 2]) * t
+    );
+    replayQuatA.fromArray(a, o + 3);
+    replayQuatB.fromArray(b, o + 3);
+    mesh.quaternion.copy(replayQuatA.slerp(replayQuatB, t));
+  };
+  let o = 0;
+  for (const car of cars) {
+    place(car.mesh, o);
+    car.pos.copy(car.mesh.position);
+    car.y = car.pos.y;
+    car.flame.visible = a[o + 7] === 1;
+    o += REPLAY_STRIDE;
+  }
+  place(ballMesh, o);
+  ball.pos.copy(ballMesh.position);
+  ballGlow.position.copy(ball.pos);
+}
+
+function startReplay() {
+  replay.frames = replayBuffer.slice();
+  replay.pos = 0;
+  replay.hold = 0;
+  replay.exploded = false;
+  replay.active = true;
+  matchState = 'REPLAY';
+  if (replayBadge) replayBadge.hidden = false;
+  applyReplayFrame(0);
+}
+
+function endReplay() {
+  replay.active = false;
+  replay.frames = null;
+  if (replayBadge) replayBadge.hidden = true;
+}
+
+if (replaySkip) replaySkip.addEventListener('click', () => {
+  if (replay.active) replay.hold = 0.001, replay.pos = Infinity;
+});
+
+// One step of replay playback; returns true when it is finished and the kickoff should start.
+function stepReplay(dt) {
+  if (replay.pos !== Infinity && replay.pos < replay.frames.length - 1) {
+    replay.pos += REPLAY_SPEED * dt * 60;
+    applyReplayFrame(Math.min(replay.pos, replay.frames.length - 1));
+    return false;
+  }
+  // Reached the goal again: let the explosion play out before the kickoff.
+  if (replay.pos === Infinity) return true;
+  if (!replay.exploded) {
+    replay.exploded = true;
+    explodeAt(ball.pos, replay.team);
+  }
+  replay.hold += dt;
+  return replay.hold > 1.2;
+}
+
 /* ============================== LOOP ============================== */
 
 let lastTime = performance.now();
 let accumulator = 0;
 let loadingHidden = false;
-const portraitOnly = window.matchMedia('(orientation: landscape) and (max-height: 560px) and (pointer: coarse)');
 
 function animate(now) {
   requestAnimationFrame(animate);
   const frameDelta = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
-
-  // The rotate-to-portrait notice covers the match on phones; skip the sim and
-  // the render behind it instead of burning battery in an invisible view.
-  if (portraitOnly.matches) return;
 
   if (!paused) {
     accumulator += frameDelta * speedMultiplier;
@@ -2375,6 +2593,7 @@ function animate(now) {
   }
 
   updateCamera(frameDelta);
+  updateFx(frameDelta);
   updateUI();
   renderer.render(scene, camera);
 
