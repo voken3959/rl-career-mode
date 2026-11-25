@@ -139,7 +139,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'h
 renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.7;
+renderer.toneMappingExposure = 1.5;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 dom.container.appendChild(renderer.domElement);
 
