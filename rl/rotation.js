@@ -48,14 +48,17 @@ export class Rotation {
       // Stay with the current chaser unless the other is clearly better placed.
       const chaser = current !== undefined && score(best) > score(current) * 0.75 ? current : best;
 
+      let supporterNumber = 0;
       for (const i of members) {
         const car = cars[i];
         this.chaser[i] = i === chaser;
         if (i === chaser) { this.override[i] = false; continue; }
+        // With three players the two supporters cover different depths and sides.
+        const rank = supporterNumber++;
 
         // The covering spot: well behind the ball towards our own goal, leaning to the ball's side.
-        const targetY = clamp(ball[1] - attack * 1800, -4300, 4300);
-        const targetX = clamp(ball[0] * 0.4, -2400, 2400);
+        const targetY = clamp(ball[1] - attack * (1800 + rank * 1500), -4300, 4300);
+        const targetX = clamp(ball[0] * 0.4 * (rank ? -0.6 : 1) + (rank ? (ball[0] > 0 ? -1200 : 1200) : 0), -2400, 2400);
         let target = [targetX, targetY];
 
         const mate = cars[chaser];

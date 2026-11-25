@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Road To Pro — Match Center</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="match3d.css?v=12" />
+  <link rel="stylesheet" href="match3d.css?v=13" />
   <script type="importmap">
     {
       "imports": {
@@ -65,7 +65,18 @@
         <button class="cam-btn" data-cam="car1"><span>2</span> Blue 2</button>
         <button class="cam-btn" data-cam="car2"><span>3</span> Orange 1</button>
         <button class="cam-btn" data-cam="car3"><span>4</span> Orange 2</button>
+        <button class="cam-btn" data-cam="car4" hidden><span>5</span> Orange 3</button>
+        <button class="cam-btn" data-cam="car5" hidden><span>6</span> Orange 3</button>
       </div>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-heading"><span>Mode</span></div>
+      <select id="modeSelect" class="select">
+        <option value="1">1v1</option>
+        <option value="2" selected>2v2</option>
+        <option value="3">3v3</option>
+      </select>
     </div>
 
     <div class="panel-block">
@@ -109,6 +120,7 @@
     <div class="controls">
       <button class="control-btn" id="playBtn">Pause</button>
       <button class="control-btn" id="replayBtn">Restart</button>
+      <button class="control-btn" id="modeBtn">2v2</button>
       <button class="control-btn" id="cameraBtn">Camera · Blue 1</button>
       <button class="control-btn" id="speedBtn">Speed 1×</button>
     </div>
@@ -120,7 +132,7 @@
     <button type="button" id="replaySkip">Skip</button>
   </div>
 
-  <script type="module" src="match3d.js?v=48"></script>
+  <script type="module" src="match3d.js?v=49"></script>
   <script src="local-update.js"></script>
 </body>
 </html>
