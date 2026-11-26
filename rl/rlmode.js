@@ -27,17 +27,18 @@ export const SCENE_SCALE = 60 / FIELD_Y;
 //   rotation    - how reliably it holds a covering position when it is not the one on the ball (0 never, 1 always)
 //   recovery    - chance per jump that it air-rolls to line the wheels up for landing and flips back over when stuck
 //   carry       - how willing it is to dribble the ball along the ground (0 never, 1 whenever it can)
-//   air         - how willing it is to try a scripted air dribble (0 never, 1 whenever it can)
+//   air         - how willing it is to try a scripted air dribble (0 never, 1 almost whenever it can). None up to
+//                 Platinum, then rising each rank
 export const TIER_SETTINGS = {
   bronze:        { carry: 0.25, recovery: 0.1, temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0, rotation: 0 },
   silver:        { carry: 0.35, recovery: 0.25, temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0, rotation: 0.2 },
-  gold:          { carry: 0.5, recovery: 0.45, temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1, rotation: 0.4 },
-  platinum:      { carry: 0.65, recovery: 0.6, temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25, rotation: 0.55 },
-  diamond:       { carry: 0.75, recovery: 0.75, temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4, rotation: 0.7 },
-  champion:      { carry: 0.85, recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6, rotation: 0.8 },
-  grandchampion: { carry: 0.9, recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8, rotation: 0.9 },
+  gold:          { carry: 0.5, recovery: 0.45, temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0, rotation: 0.4 },
+  platinum:      { carry: 0.65, recovery: 0.6, temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0, rotation: 0.55 },
+  diamond:       { carry: 0.75, recovery: 0.75, temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.3, rotation: 0.7 },
+  champion:      { carry: 0.85, recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.5, rotation: 0.8 },
+  grandchampion: { carry: 0.9, recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.7, rotation: 0.9 },
   ssl:           { carry: 0.95, recovery: 0.97, temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
-  pro:           { carry: 1, recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto', rotation: 1 }
+  pro:           { carry: 1, recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 1, bot: 'nexto', rotation: 1 }
 };
 
 export class RLMatch {
@@ -159,7 +160,7 @@ export class RLMatch {
         if (dribble.active || carry.active) continue;
         if ((this.tickCount + i * spread) % period === 0) {
           // Maybe start an air dribble or a ground dribble instead of asking the network.
-          if (dribble.cooldown <= 0 && Math.random() < this.settings.air * 0.3 && canStart(this.engine, i)) {
+          if (dribble.cooldown <= 0 && Math.random() < this.settings.air * 0.6 && canStart(this.engine, i)) {
             dribble.begin();
           } else if (carry.cooldown <= 0 && Math.random() < this.settings.carry * 0.6 && canStartGround(this.engine, i)) {
             carry.begin();
