@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RLMatch, SCENE_SCALE as RL_S } from './rl/rlmode.js';
+import { sfx } from './sfx.js';
 import { PAD_POSITIONS as RL_PADS, PAD_IS_BIG as RL_PAD_BIG, BALL_RADIUS as RL_BALL_R } from './rl/constants.js';
 
 /* ============================== CONFIG ============================== */
@@ -105,6 +106,8 @@ function angleDelta(a, b) {
 
 // Pop-up notices (Shot, Save, Goal, Assist...) stacked under the scoreboard.
 function notify(title, detail, team) {
+  if (title === 'SHOT ON GOAL') sfx.notice('shot');
+  else if (title === 'SAVE') sfx.notice('save');
   const box = document.getElementById('notifications');
   if (!box) return;
   const notice = document.createElement('div');
@@ -678,6 +681,7 @@ let matchState = 'KICKOFF';
 let kickoffTimer = 1.6;
 let kickoffPhase = 0;
 let kickoffCount = 0;
+let kickoffStage = 9;
 let roleUpdateTimer = 0;
 let goalTimer = 0;
 let goalLocked = false;
@@ -706,6 +710,15 @@ const rlTarget = new THREE.Quaternion();
 const rlSpin = new THREE.Vector3();
 const rlSpinQuat = new THREE.Quaternion();
 
+// Where a sound is relative to the camera: stereo pan, and how much quieter it is when far away.
+const sfxVec = new THREE.Vector3();
+function sfxSpace(position) {
+  sfxVec.copy(position).applyMatrix4(camera.matrixWorldInverse);
+  const d = sfxVec.length();
+  return { pan: clamp(sfxVec.x / Math.max(8, d), -1, 1), near: clamp(1.15 - d / 120, 0.3, 1) };
+}
+let sfxBallVel = null;
+
 // Copy the engine state into the scene objects: scene = (rl y, rl z, rl x) scaled by RL_S.
 function syncFromRL(snap = false) {
   const engine = rl.engine;
@@ -728,6 +741,16 @@ function syncFromRL(snap = false) {
     car.chassis.position.set(13.9 * RL_S, -17 * RL_S, 0);
     car.heading = Math.atan2(-rlForward.z, rlForward.x);
     car.flame.visible = !!rc.boosting;
+    if (!snap) {
+      const space = sfxSpace(car.pos);
+      if (rc.hasJumped && !car.sfxJumped) sfx.jump(space.pan, space.near);
+      if (rc.isFlipping && !car.sfxFlipping) sfx.flip(space.pan, space.near);
+      sfx.boost(i, rc.boosting ? space.near : 0, space.pan);
+    } else {
+      sfx.boost(i, 0);
+    }
+    car.sfxJumped = rc.hasJumped;
+    car.sfxFlipping = rc.isFlipping;
 
     // Wheels: front pair steer with the car's steering input, all four roll with the speed along the car.
     const input = rl.controls[i] || {};
@@ -778,6 +801,22 @@ function headingAtGoal(engine, team) {
     if (z < 0) z = -z * 0.6;
   }
   return Math.abs(x) < 950 && z < 730;
+}
+
+// Hits, bounces and pad pickups from this step's engine events.
+function playEventSounds(events) {
+  const ballSpace = sfxSpace(ball.pos);
+  for (const touch of events.touches) sfx.hit(touch.speed, ballSpace.pan, ballSpace.near);
+  for (const pickup of events.pickups) {
+    const space = sfxSpace(cars[pickup.car].pos);
+    sfx.pickup(pickup.big, space.pan, space.near);
+  }
+  const v = rl.engine.ball.vel;
+  if (sfxBallVel && !events.touches.length) {
+    const change = Math.hypot(v[0] - sfxBallVel[0], v[1] - sfxBallVel[1], v[2] - sfxBallVel[2]);
+    if (change > 350) sfx.bounce(change, ballSpace.pan, ballSpace.near);
+  }
+  sfxBallVel = [v[0], v[1], v[2]];
 }
 
 function handleRLEvents(events) {
@@ -860,6 +899,13 @@ function stepRL(dt) {
   if (kickoffTimer > 0) {
     kickoffTimer -= dt;
     matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
+    // Countdown ticks at 1.8, 1.2 and 0.6 s, then the go tone.
+    const stage = kickoffTimer <= 0 ? -1 : Math.floor(kickoffTimer / 0.6);
+    if (stage !== kickoffStage) {
+      kickoffStage = stage;
+      if (stage === -1) sfx.beep(true);
+      else if (stage <= 2) sfx.beep(false);
+    }
     return;
   }
 
@@ -869,6 +915,7 @@ function stepRL(dt) {
   const events = rl.engine.consumeEvents();
   syncFromRL();
   recordReplayFrame();
+  playEventSounds(events);
   handleRLEvents(events);
 
   if (events.goal) {
@@ -889,6 +936,8 @@ function stepRL(dt) {
 function resetPositions(message) {
   if (RL_MODE) {
     kickoffCount++;
+    kickoffStage = 9;
+    sfxBallVel = null;
     replayBuffer.length = 0;
     if (replay.active) endReplay();
     rl.reset();
@@ -988,6 +1037,7 @@ function scoreGoal(team) {
     replay.focus = rlLastTouch ? rlLastTouch.car : 0;
     replay.team = team;
     explodeAt(ball.pos, team);
+    sfx.goal();
     announceGoal(team);
   }
   goalTimer = 1.8;
@@ -2374,6 +2424,7 @@ if (dom.cameraBtn) dom.cameraBtn.addEventListener('click', cycleCameraMode);
 
 dom.playBtn.addEventListener('click', () => {
   paused = !paused;
+  if (paused) sfx.silenceBoost();
   dom.playBtn.textContent = paused ? 'Resume' : 'Pause';
 });
 
@@ -2393,12 +2444,23 @@ dom.backBtn.addEventListener('click', () => {
   window.location.href = 'index.html';
 });
 
+// Sound: the browser only starts audio after a click or key press, so unlock on the first one.
+const soundBtn = document.getElementById('soundBtn');
+function refreshSoundButton() { if (soundBtn) soundBtn.classList.toggle('muted', sfx.muted); }
+['pointerdown', 'keydown', 'touchstart'].forEach(name => window.addEventListener(name, () => sfx.unlock(), { passive: true }));
+document.addEventListener('visibilitychange', () => { if (document.hidden) sfx.suspend(); else sfx.resume(); });
+if (soundBtn) soundBtn.addEventListener('click', () => { sfx.setMuted(!sfx.muted); refreshSoundButton(); });
+refreshSoundButton();
+
 document.addEventListener('keydown', event => {
   if (event.key === ' ') {
     event.preventDefault();
     dom.playBtn.click();
   } else if (event.key >= '1' && event.key <= String(cars.length)) {
     setCameraMode('car' + (Number(event.key) - 1));
+  } else if (event.key.toLowerCase() === 'm') {
+    sfx.setMuted(!sfx.muted);
+    refreshSoundButton();
   } else if (event.key.toLowerCase() === 'c') {
     cycleCameraMode();
   } else if (event.key.toLowerCase() === 'r') {
@@ -2584,6 +2646,7 @@ function applyReplayFrame(position) {
     car.pos.copy(car.mesh.position);
     car.y = car.pos.y;
     car.flame.visible = a[o + 7] === 1;
+    sfx.boost(cars.indexOf(car), car.flame.visible ? sfxSpace(car.pos).near : 0, sfxSpace(car.pos).pan);
     o += REPLAY_STRIDE;
   }
   place(ballMesh, o);
@@ -2598,6 +2661,7 @@ function startReplay() {
   replay.exploded = false;
   replay.active = true;
   matchState = 'REPLAY';
+  sfx.whoosh();
   if (replayBadge) replayBadge.hidden = false;
   applyReplayFrame(0);
 }
@@ -2624,6 +2688,7 @@ function stepReplay(dt) {
   if (!replay.exploded) {
     replay.exploded = true;
     explodeAt(ball.pos, replay.team);
+    sfx.goal(true);
   }
   replay.hold += dt;
   return replay.hold > 1.2;

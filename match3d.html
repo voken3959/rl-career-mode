@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Road To Pro — Match Center</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="match3d.css?v=14" />
+  <link rel="stylesheet" href="match3d.css?v=15" />
   <script type="importmap">
     {
       "imports": {
@@ -49,6 +49,13 @@
 
     <div class="hud-right">
       <div class="rank-chip" id="rankChip">Bronze</div>
+      <button class="icon-btn" id="soundBtn" title="Sound on/off (M)" aria-label="Sound on or off">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" />
+          <path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />
+          <path class="slash" d="M16 9.5l5 5M21 9.5l-5 5" />
+        </svg>
+      </button>
       <button class="icon-btn" id="backBtn" title="Back to career" aria-label="Back to career">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M6 6l12 12M18 6L6 18" />
@@ -132,7 +139,7 @@
     <button type="button" id="replaySkip">Skip</button>
   </div>
 
-  <script type="module" src="match3d.js?v=54"></script>
+  <script type="module" src="match3d.js?v=55"></script>
   <script src="local-update.js"></script>
 </body>
 </html>
