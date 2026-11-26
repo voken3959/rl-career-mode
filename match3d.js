@@ -158,7 +158,7 @@ function resizeRenderer() {
   camera.aspect = width / height;
   camera.fov = portrait ? (MOBILE ? 68 : 62) : 55;
   camera.updateProjectionMatrix();
-  const maxRatio = MOBILE ? 1.25 : (RL_MODE ? 1.5 : 2);
+  const maxRatio = MOBILE ? 1.25 : (RL_MODE ? 1.25 : 2);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxRatio));
   renderer.setSize(width, height);
 }
@@ -2277,15 +2277,26 @@ function updateCamera(dt) {
 
 /* ============================== UI ============================== */
 
+// Only touch the DOM when a value changed: rewriting text and styles every frame forces needless style work.
+const uiShown = {};
+function setText(key, element, value) {
+  if (!element || uiShown[key] === value) return;
+  uiShown[key] = value;
+  element.textContent = value;
+}
+
 function updateUI() {
-  dom.scoreBlue.textContent = scoreBlue;
-  dom.scoreOrange.textContent = scoreOrange;
-  dom.clock.textContent = formatClock(clock);
-  dom.matchState.textContent = matchState;
-  const boost = clamp(cars[0].boost, 0, 100);
-  if (dom.statBoost) dom.statBoost.textContent = Math.round(boost) + '%';
-  if (dom.boostValue) dom.boostValue.textContent = Math.round(boost) + '%';
-  if (dom.boostFill) dom.boostFill.style.width = boost + '%';
+  setText('blue', dom.scoreBlue, scoreBlue);
+  setText('orange', dom.scoreOrange, scoreOrange);
+  setText('clock', dom.clock, formatClock(clock));
+  setText('state', dom.matchState, matchState);
+  const boost = Math.round(clamp(cars[0].boost, 0, 100));
+  setText('statBoost', dom.statBoost, boost + '%');
+  setText('boostValue', dom.boostValue, boost + '%');
+  if (dom.boostFill && uiShown.boostFill !== boost) {
+    uiShown.boostFill = boost;
+    dom.boostFill.style.width = boost + '%';
+  }
 }
 
 function applySkillUI() {
@@ -2624,19 +2635,28 @@ let lastTime = performance.now();
 let accumulator = 0;
 let loadingHidden = false;
 
+// The simulation runs at 60 Hz and nothing is interpolated, so drawing faster than that only repeats frames. On
+// 120/144 Hz monitors this halves the rendering work; the schedule keeps the average at 60 without judder.
+const FRAME_MS = 1000 / 60;
+let nextFrameAt = 0;
+
 function animate(now) {
   requestAnimationFrame(animate);
+  if (now < nextFrameAt - 1) return;
+  nextFrameAt = nextFrameAt && now - nextFrameAt < 50 ? nextFrameAt + FRAME_MS : now + FRAME_MS;
   const frameDelta = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
   if (!paused) {
     accumulator += frameDelta * speedMultiplier;
     let iterations = 0;
-    while (accumulator >= 1 / 60 && iterations < 10) {
+    while (accumulator >= 1 / 60 && iterations < 3 + 3 * speedMultiplier) {
       step(1 / 60);
       accumulator -= 1 / 60;
       iterations++;
     }
+    // Running slow: drop the backlog rather than spending the next frames catching up (which makes it slower still).
+    if (accumulator > 2 / 60 * speedMultiplier) accumulator = 0;
   }
 
   updateCamera(frameDelta);
