@@ -2446,10 +2446,28 @@ function updateUI() {
   }
 }
 
+// Compact rank switcher for phones (the side panel with the full selector is hidden on small screens).
+const rankSelect = document.getElementById('rankSelect');
+const SHORT_RANKS = { bronze: 'Bronze', silver: 'Silver', gold: 'Gold', platinum: 'Plat', diamond: 'Diamond', champion: 'Champ', grandchampion: 'GC', ssl: 'SSL', pro: 'Pro' };
+if (rankSelect) {
+  Object.keys(SKILLS).forEach(key => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = SHORT_RANKS[key] || SKILLS[key].label;
+    rankSelect.appendChild(option);
+  });
+  rankSelect.addEventListener('change', () => {
+    dom.skillSelect.value = rankSelect.value;
+    dom.skillSelect.dispatchEvent(new Event('change'));
+    rankSelect.blur();
+  });
+}
+
 function applySkillUI() {
   const keys = Object.keys(SKILLS);
   const index = keys.indexOf(skillKey);
   dom.skillSelect.value = skillKey;
+  if (rankSelect) rankSelect.value = skillKey;
   dom.rankChip.textContent = skill.label;
   dom.rankChip.style.setProperty('--rank-color', skill.color);
   dom.skillFill.style.width = (10 + (index / (keys.length - 1)) * 90) + '%';

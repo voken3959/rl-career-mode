@@ -675,3 +675,21 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 #soundBtn .slash { display: none; }
 #soundBtn.muted .wave { display: none; }
 #soundBtn.muted .slash { display: inline; }
+
+/* Rank switcher for small screens, where the side panel is hidden. It sits in the empty left cell of the top bar. */
+.hud-rank { display: none; grid-column: 1; justify-self: start; pointer-events: auto; }
+.rank-select {
+  height: 32px;
+  max-width: 100px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(8, 6, 12, 0.88);
+  color: var(--text);
+  color-scheme: dark;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+@media (max-width: 900px) { .hud-rank { display: block; } }
+@media (orientation: landscape) and (max-height: 560px) { .hud-rank { display: block; } }

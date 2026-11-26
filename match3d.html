@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Road To Pro — Match Center</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="match3d.css?v=15" />
+  <link rel="stylesheet" href="match3d.css?v=16" />
   <script type="importmap">
     {
       "imports": {
@@ -36,6 +36,10 @@
     <div class="hud-brand">
       <img class="hud-logo" src="assets/road-to-pro.png" alt="Road To Pro" width="2172" height="724" />
       <span class="hud-section">Match Center</span>
+    </div>
+
+    <div class="hud-rank">
+      <select id="rankSelect" class="rank-select" aria-label="Rank"></select>
     </div>
 
     <div class="scoreboard">
@@ -140,7 +144,7 @@
     <button type="button" id="replaySkip">Skip</button>
   </div>
 
-  <script type="module" src="match3d.js?v=56"></script>
+  <script type="module" src="match3d.js?v=57"></script>
   <script src="local-update.js"></script>
 </body>
 </html>
