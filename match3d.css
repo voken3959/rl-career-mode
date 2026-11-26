@@ -693,3 +693,28 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 }
 @media (max-width: 900px) { .hud-rank { display: block; } }
 @media (orientation: landscape) and (max-height: 560px) { .hud-rank { display: block; } }
+
+/* Kickoff countdown */
+.countdown {
+  position: fixed;
+  top: 38%;
+  left: 50%;
+  z-index: 22;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-size: clamp(72px, 16vw, 150px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: #ffffff;
+  text-shadow: 0 6px 36px rgba(0, 0, 0, 0.6), 0 0 28px rgba(120, 180, 255, 0.45);
+  opacity: 0;
+  pointer-events: none;
+}
+.countdown.show { animation: countdownPop 0.95s ease-out forwards; }
+@keyframes countdownPop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.8); }
+  18% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+}
+@media (orientation: landscape) and (max-height: 560px) { .countdown { top: 45%; font-size: 64px; } }
