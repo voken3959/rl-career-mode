@@ -23,7 +23,7 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const length = a => Math.hypot(a[0], a[1], a[2]);
+const length = a => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
 const normalize = (a, fallback = [0, 0, 1]) => {
   const l = length(a);
   return l > 1e-9 ? [a[0] / l, a[1] / l, a[2] / l] : fallback;
@@ -55,14 +55,16 @@ function lerpTable(table, x) {
 // Distance from a point to the arena surface, positive inside. The main arena is a box with rounded vertical
 // corners and curved floor and ceiling edges. The two goals are boxes behind the back walls.
 function edgeDistance(u, v, r) {
-  if (u < r && v < r) return r - Math.hypot(r - u, r - v);
+  if (u < r && v < r) return r - Math.sqrt((r - u) * (r - u) + (r - v) * (r - v));
   return Math.min(u, v);
 }
 
 function mainDistance(x, y, z) {
   const qx = Math.abs(x) - (FIELD_X - CORNER_RADIUS);
   const qy = Math.abs(y) - (FIELD_Y - CORNER_RADIUS);
-  const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
+  const ox = qx > 0 ? qx : 0;
+  const oy = qy > 0 ? qy : 0;
+  const outside = Math.sqrt(ox * ox + oy * oy);
   const inside = Math.min(Math.max(qx, qy), 0);
   const wall = CORNER_RADIUS - outside - inside;
   return Math.min(edgeDistance(wall, z, RAMP_RADIUS), edgeDistance(wall, FIELD_Z - z, RAMP_RADIUS));
@@ -531,7 +533,7 @@ function ballCarContact(ball, car) {
   const local = axes.map(axis => dot(axis, rel));
   const clamped = local.map((v, i) => clamp(v, -HITBOX_HALF[i], HITBOX_HALF[i]));
   const delta = local.map((v, i) => v - clamped[i]);
-  let distance = Math.hypot(delta[0], delta[1], delta[2]);
+  let distance = Math.sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
   let normal;
   if (distance < 1e-6) {
     // Centre inside the box: push out through the nearest face.

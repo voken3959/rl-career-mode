@@ -158,7 +158,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(8, 6, 12, 0.84);
-  backdrop-filter: blur(18px);
   pointer-events: auto;
 }
 
@@ -241,7 +240,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(8, 6, 12, 0.78);
-  backdrop-filter: blur(18px);
   overflow: hidden;
 }
 .panel-left { left: 24px; }
@@ -393,7 +391,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(8, 6, 12, 0.86);
-  backdrop-filter: blur(18px);
 }
 .boost-hud-top {
   display: flex;
@@ -443,7 +440,6 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(8, 6, 12, 0.86);
-  backdrop-filter: blur(18px);
   transform: translateX(-50%);
   white-space: nowrap;
 }
