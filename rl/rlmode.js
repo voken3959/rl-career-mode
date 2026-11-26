@@ -7,6 +7,7 @@ import { NextoPolicy } from './nexto.js';
 import { FIELD_Y, DT } from './constants.js';
 import { AirDribble, canStart, airControls } from './airdribble.js';
 import { Rotation } from './rotation.js';
+import { GroundDribble, canStartGround, groundControls } from './dribble.js';
 import { landingAssist, rightingRoll } from './recovery.js';
 
 /** Metres-ish scene units per Unreal unit: the 10240 uu long arena becomes 120 scene units. */
@@ -25,17 +26,18 @@ export const SCENE_SCALE = 60 / FIELD_Y;
 //   bot         - 'nexto' uses the Nexto network (needs rl/nexto.bin), otherwise Whiskers
 //   rotation    - how reliably it holds a covering position when it is not the one on the ball (0 never, 1 always)
 //   recovery    - chance per jump that it air-rolls to line the wheels up for landing and flips back over when stuck
+//   carry       - how willing it is to dribble the ball along the ground (0 never, 1 whenever it can)
 //   air         - how willing it is to try a scripted air dribble (0 never, 1 whenever it can)
 export const TIER_SETTINGS = {
-  bronze:        { recovery: 0.1, temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0, rotation: 0 },
-  silver:        { recovery: 0.25, temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0, rotation: 0.2 },
-  gold:          { recovery: 0.45, temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1, rotation: 0.4 },
-  platinum:      { recovery: 0.6, temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25, rotation: 0.55 },
-  diamond:       { recovery: 0.75, temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4, rotation: 0.7 },
-  champion:      { recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6, rotation: 0.8 },
-  grandchampion: { recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8, rotation: 0.9 },
-  ssl:           { recovery: 0.97, temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
-  pro:           { recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto', rotation: 1 }
+  bronze:        { carry: 0.25, recovery: 0.1, temperature: 3.0,  period: 24, lapse: 0.12,  misread: 600, speedCap: 900,  air: 0, rotation: 0 },
+  silver:        { carry: 0.35, recovery: 0.25, temperature: 2.3,  period: 20, lapse: 0.09,  misread: 450, speedCap: 1000, air: 0, rotation: 0.2 },
+  gold:          { carry: 0.5, recovery: 0.45, temperature: 1.8,  period: 16, lapse: 0.07,  misread: 330, speedCap: 1150, air: 0.1, rotation: 0.4 },
+  platinum:      { carry: 0.65, recovery: 0.6, temperature: 1.4,  period: 12, lapse: 0.05,  misread: 250, speedCap: 1300, air: 0.25, rotation: 0.55 },
+  diamond:       { carry: 0.75, recovery: 0.75, temperature: 1.1,  period: 10, lapse: 0.04,  misread: 180, speedCap: 1400, air: 0.4, rotation: 0.7 },
+  champion:      { carry: 0.85, recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.6, rotation: 0.8 },
+  grandchampion: { carry: 0.9, recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.8, rotation: 0.9 },
+  ssl:           { carry: 0.95, recovery: 0.97, temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
+  pro:           { carry: 1, recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 0.5, bot: 'nexto', rotation: 1 }
 };
 
 export class RLMatch {
@@ -58,6 +60,7 @@ export class RLMatch {
     this.lapseLeft = this.engine.cars.map(() => 0);
     this.lapseAction = this.engine.cars.map(() => 0);
     this.air = this.engine.cars.map(() => new AirDribble());
+    this.ground = this.engine.cars.map(() => new GroundDribble());
     this.rotation = new Rotation(this.engine.cars.length);
     this.wasGround = this.engine.cars.map(() => true);
     this.assistOn = this.engine.cars.map(() => false);
@@ -94,6 +97,7 @@ export class RLMatch {
     this.error.forEach(e => { e[0] = e[1] = e[2] = 0; });
     this.lapseLeft.fill(0);
     this.air.forEach(a => a.end(2));
+    this.ground.forEach(g => g.end(2));
     this.rotation.reset();
     this.wasGround.fill(true);
     this.assistOn.fill(false);
@@ -149,16 +153,28 @@ export class RLMatch {
       const spread = Math.max(1, Math.floor(period / cars.length));
       for (let i = 0; i < cars.length; i++) {
         const dribble = this.air[i];
+        const carry = this.ground[i];
         if (dribble.cooldown > 0) dribble.cooldown -= DT;
-        if (dribble.active) continue;
+        if (carry.cooldown > 0) carry.cooldown -= DT;
+        if (dribble.active || carry.active) continue;
         if ((this.tickCount + i * spread) % period === 0) {
-          // Maybe start an air dribble instead of asking the network.
+          // Maybe start an air dribble or a ground dribble instead of asking the network.
           if (dribble.cooldown <= 0 && Math.random() < this.settings.air * 0.3 && canStart(this.engine, i)) {
             dribble.begin();
+          } else if (carry.cooldown <= 0 && Math.random() < this.settings.carry * 0.6 && canStartGround(this.engine, i)) {
+            carry.begin();
           } else {
             this.decideCar(i);
           }
         }
+      }
+      // Ground dribbles drive every tick too.
+      for (let i = 0; i < cars.length; i++) {
+        const carry = this.ground[i];
+        if (!carry.active) continue;
+        const ctl = groundControls(this.engine, i, carry, this.error[i]);
+        if (ctl) this.controls[i] = ctl;
+        else this.decideCar(i);
       }
       // Active dribbles steer every tick, because aerial control needs a faster loop than the network's.
       for (let i = 0; i < cars.length; i++) {
@@ -174,11 +190,11 @@ export class RLMatch {
       if (this.tickCount % 8 === 0) this.rotation.update(this.engine, this.settings.rotation);
       if (this.tickCount % 4 === 0) {
         for (let i = 0; i < cars.length; i++) {
-          if (this.rotation.override[i] && !this.air[i].active) this.rotation.drive(this.engine, i, this.settings.speedCap);
+          if (this.rotation.override[i] && !this.air[i].active && !this.ground[i].active) this.rotation.drive(this.engine, i, this.settings.speedCap);
         }
       }
       for (let i = 0; i < cars.length; i++) {
-        if (this.rotation.override[i] && !this.air[i].active) this.controls[i] = this.rotation.controls[i];
+        if (this.rotation.override[i] && !this.air[i].active && !this.ground[i].active) this.controls[i] = this.rotation.controls[i];
       }
     }
     this.engine.tick(this.recover());
