@@ -150,6 +150,7 @@ dom.container.appendChild(renderer.domElement);
 
 // Portrait screens need a wider lens and a little more distance, otherwise the
 // car and ball fill the narrow view and the rest of the play is cropped away.
+function baseFov(portrait) { return portrait ? (MOBILE ? 68 : 62) : 55; }
 function resizeRenderer() {
   // visualViewport tracks the space left by mobile browser chrome. Ignore it
   // while pinch-zoomed so zooming does not shrink the canvas.
@@ -159,7 +160,7 @@ function resizeRenderer() {
   const height = Math.max(1, Math.round(vv && !zoomed ? vv.height : window.innerHeight));
   const portrait = height > width;
   camera.aspect = width / height;
-  camera.fov = portrait ? (MOBILE ? 68 : 62) : 55;
+  camera.fov = baseFov(portrait);
   camera.updateProjectionMatrix();
   const maxRatio = MOBILE ? 1.25 : (RL_MODE ? 1.25 : 2);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxRatio));
@@ -2292,7 +2293,103 @@ const camOffset = new THREE.Vector3();
 
 // Player cameras always sit behind a car on the line from the ball through the car and look at the ball.
 // They only use positions, never the car's orientation, so flips and wall rides do not turn the camera.
+/* ---- Director camera: an automatic broadcast view, like Rocket League's ---- */
+
+const director = {
+  shot: '', t: 0, since: 0, orbit: 0, cut: true,
+  pos: new THREE.Vector3(), look: new THREE.Vector3(), target: new THREE.Vector3(), aim: new THREE.Vector3(), fov: 50
+};
+
+// Which shot suits what is happening: a wide sideline view that pans and zooms with the play, a view from behind
+// the goal when the ball is down at that end, a low corner view at kickoff, an orbit round the ball after a goal,
+// and during a replay a sideline view, then the goal, then the scorer's chase camera.
+function chooseDirectorShot() {
+  if (replay.active) {
+    const p = replay.frames ? Math.min(1, replay.pos / Math.max(1, replay.frames.length - 1)) : 1;
+    return p < 0.45 ? 'side' : (p < 0.8 ? 'goal' : 'chase');
+  }
+  if (matchState === 'GOAL') return 'orbit';
+  if (matchState === 'KICKOFF') return 'kickoff';
+  const x = Math.abs(ball.pos.x);
+  if (director.shot === 'goal') return x > HALF_L - 30 ? 'goal' : 'side';
+  return x > HALF_L - 18 ? 'goal' : 'side';
+}
+
+// Returns false when the shot is the chase camera, which the normal camera code then handles.
+function updateDirector(dt) {
+  director.t += dt;
+  const want = chooseDirectorShot();
+  const free = matchState !== 'PLAYING' || replay.active || director.shot === '' || director.shot === 'kickoff' || director.shot === 'orbit';
+  if (want !== director.shot && (free || director.t - director.since > 1.1)) {
+    director.shot = want;
+    director.since = director.t;
+    director.cut = true;
+  }
+  const portrait = camera.aspect < 1;
+  const shot = director.shot;
+  if (shot === 'chase') {
+    if (Math.abs(camera.fov - baseFov(portrait)) > 0.05) { camera.fov = baseFov(portrait); camera.updateProjectionMatrix(); }
+    return false;
+  }
+
+  const target = director.target;
+  const aim = director.aim;
+  let posRate = 2;
+  let lookRate = 7;
+  let fovTarget = 50;
+  aim.copy(ball.pos);
+  if (shot === 'side') {
+    // High TV position on the sideline, drifting along with the ball; the lens zooms to keep the ball and the
+    // nearest cars in frame.
+    target.set(clamp(ball.pos.x * 0.8, -HALF_L * 0.8, HALF_L * 0.8), 26 + ball.pos.y * 0.4, HALF_W + 18);
+    posRate = 1.6;
+    let near = 40;
+    for (const car of cars) near = Math.min(near, car.pos.distanceTo(ball.pos));
+    const span = clamp(near * 2.4 + 24, 36, 95);
+    fovTarget = THREE.MathUtils.radToDeg(2 * Math.atan(span * 0.5 / Math.max(10, target.distanceTo(ball.pos))));
+  } else if (shot === 'goal') {
+    const sign = replay.active ? (replay.team === 'blue' ? 1 : -1) : (ball.pos.x >= 0 ? 1 : -1);
+    target.set(sign * (HALF_L + 16), 6 + ball.pos.y * 0.25, clamp(ball.pos.z * 0.35, -10, 10));
+    posRate = 3;
+    lookRate = 9;
+    fovTarget = THREE.MathUtils.radToDeg(2 * Math.atan(34 / Math.max(10, target.distanceTo(ball.pos))));
+  } else if (shot === 'kickoff') {
+    target.set(kickoffCount % 2 ? -24 : 24, 8, HALF_W + 8);
+    aim.set(0, 3, 0);
+    posRate = 1.2;
+    lookRate = 5;
+    fovTarget = 48;
+  } else { // orbit
+    director.orbit += dt * 0.7;
+    target.set(ball.pos.x + Math.cos(director.orbit) * 13, ball.pos.y + 6, ball.pos.z + Math.sin(director.orbit) * 13);
+    posRate = 6;
+    fovTarget = 55;
+  }
+  fovTarget = clamp(fovTarget, 24, 58) * (portrait ? 1.35 : 1);
+
+  if (director.cut) {
+    // Real cuts, as on TV: jump straight to the new shot instead of gliding there.
+    director.cut = false;
+    director.pos.copy(target);
+    director.look.copy(aim);
+    director.fov = fovTarget;
+  } else {
+    director.pos.lerp(target, 1 - Math.exp(-dt * posRate));
+    director.look.lerp(aim, 1 - Math.exp(-dt * lookRate));
+    director.fov += (fovTarget - director.fov) * (1 - Math.exp(-dt * 2.5));
+  }
+  camera.position.copy(director.pos);
+  camera.lookAt(director.look);
+  currentLook.copy(director.look);
+  if (Math.abs(camera.fov - director.fov) > 0.05) {
+    camera.fov = director.fov;
+    camera.updateProjectionMatrix();
+  }
+  return true;
+}
+
 function updateCamera(dt) {
+  if (cameraMode === 'director' && updateDirector(dt)) return;
   const player = replay.active ? (cars[replay.focus] || cars[0]) : (cars[Number(cameraMode.slice(3))] || cars[0]);
   const portrait = camera.aspect < 1;
   const widen = portrait ? 1.15 : 1;
@@ -2363,15 +2460,18 @@ function applySkillUI() {
 }
 
 function setCameraMode(mode) {
+  const wasDirector = cameraMode === 'director';
   cameraMode = mode;
+  if (mode === 'director') director.shot = '';
+  else if (wasDirector) resizeRenderer();
   document.querySelectorAll('.cam-btn').forEach(button => {
     button.classList.toggle('active', button.dataset.cam === mode);
   });
-  if (dom.cameraBtn) dom.cameraBtn.textContent = (MOBILE ? 'Cam · ' : 'Camera · ') + carLabel(Number(mode.slice(3)));
+  if (dom.cameraBtn) dom.cameraBtn.textContent = (MOBILE ? 'Cam · ' : 'Camera · ') + (mode === 'director' ? 'Director' : carLabel(Number(mode.slice(3))));
 }
 
 function cycleCameraMode() {
-  const modes = cars.map((car, i) => 'car' + i);
+  const modes = cars.map((car, i) => 'car' + i).concat('director');
   setCameraMode(modes[(modes.indexOf(cameraMode) + 1) % modes.length]);
 }
 
@@ -2458,6 +2558,8 @@ document.addEventListener('keydown', event => {
     dom.playBtn.click();
   } else if (event.key >= '1' && event.key <= String(cars.length)) {
     setCameraMode('car' + (Number(event.key) - 1));
+  } else if (event.key.toLowerCase() === 'd') {
+    setCameraMode('director');
   } else if (event.key.toLowerCase() === 'm') {
     sfx.setMuted(!sfx.muted);
     refreshSoundButton();
