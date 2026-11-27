@@ -27,11 +27,13 @@ export class GroundDribble {
   begin() {
     this.phase = 'carry';
     this.timer = 0;
+    this.turnTime = 0;
   }
 
   end(cooldown = 3) {
     this.phase = 'idle';
     this.timer = 0;
+    this.turnTime = 0;
     this.cooldown = cooldown;
   }
 }
@@ -109,6 +111,12 @@ export function groundControls(engine, i, state, error) {
   const localRight = (toAim[0] * right[0] + toAim[1] * right[1]) / rightFlat;
   const angle = Math.atan2(localRight, Math.max(localFwd, 1));
   const steer = clamp(angle * 2.4, -1, 1);
+  // Steering hard for a long time means going round the ball rather than at it: give up and let the network play.
+  state.turnTime = Math.abs(angle) > 0.9 ? state.turnTime + DT : Math.max(0, state.turnTime - DT);
+  if (state.turnTime > 0.9) {
+    state.end(5);
+    return null;
+  }
 
   // Speed: match the ball along our heading and close or open the gap to HOLD_GAP. Charge it when shooting.
   const speed = car.vel[0] * fwd[0] + car.vel[1] * fwd[1];

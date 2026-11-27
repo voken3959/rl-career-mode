@@ -17,12 +17,17 @@ export class Rotation {
     this.obey = this.chaser.map(() => true);
     this.obeyUntil = this.chaser.map(() => 0);
     this.controls = this.chaser.map(() => ({}));
+    this.arrive = this.chaser.map(() => 450);
+    this.holdOff = this.chaser.map(() => 0);
+    this.done = this.chaser.map(() => false);
   }
 
   reset() {
     this.chaser.fill(false);
     this.override.fill(false);
     this.obeyUntil.fill(0);
+    this.holdOff.fill(0);
+    this.done.fill(false);
   }
 
   /** Decide roles and who needs to be sent back. strength is 0 (never) to 1 (always), by rank. */
@@ -60,6 +65,7 @@ export class Rotation {
         const targetY = clamp(ball[1] - attack * (1800 + rank * 1500), -4300, 4300);
         const targetX = clamp(ball[0] * 0.4 * (rank ? -0.6 : 1) + (rank ? (ball[0] > 0 ? -1200 : 1200) : 0), -2400, 2400);
         let target = [targetX, targetY];
+        let arrive = 450;
 
         const mate = cars[chaser];
         const behindBall = attack * (ball[1] - car.pos[1]) > 800;
@@ -84,22 +90,34 @@ export class Rotation {
             const d = flat(car.pos, p) - (PAD_IS_BIG[k] ? 600 : 0);
             if (d < bestDistance) { bestDistance = d; bestPad = p; }
           }
-          if (bestPad) target = [bestPad[0], bestPad[1]];
+          if (bestPad) { target = [bestPad[0], bestPad[1]]; arrive = 320; }
         }
 
-        this.override[i] = this.obey[i] && car.onGround && !placed;
+        this.override[i] = this.obey[i] && car.onGround && !placed && engine.time > this.holdOff[i];
         this.target[i] = target;
+        this.arrive[i] = arrive;
       }
     }
   }
 
-  /** Steer car i towards its target on the ground. */
+  /**
+   * Steer car i towards its target on the ground. Speed is matched to the distance and the turn needed, so it
+   * arrives instead of orbiting a target that is inside its turning circle. Once close enough the job is done:
+   * the override is dropped for a couple of seconds and the network drives again.
+   */
   drive(engine, i, cap) {
     const car = engine.cars[i];
     const target = this.target[i];
     const dx = target[0] - car.pos[0];
     const dy = target[1] - car.pos[1];
     const distance = Math.hypot(dx, dy) || 1;
+    this.done[i] = false;
+    if (distance < this.arrive[i]) {
+      this.done[i] = true;
+      this.override[i] = false;
+      this.holdOff[i] = engine.time + 2.5;
+      return this.controls[i];
+    }
     const fx = car.fwd[0], fy = car.fwd[1];
     const fl = Math.hypot(fx, fy) || 1;
     // Right is up x forward (the engine's convention).
@@ -107,15 +125,23 @@ export class Rotation {
     const ry = car.up[2] * car.fwd[0] - car.up[0] * car.fwd[2];
     const ahead = (dx * fx + dy * fy) / (distance * fl);
     const side = (dx * rx + dy * ry) / distance;
-    const speed = Math.hypot(car.vel[0], car.vel[1]);
-    const turnHard = ahead < 0.3;
+    const angle = Math.atan2(side, ahead); // signed, positive = target is to the right
+    const turn = Math.abs(angle);
+    const speed = car.vel[0] * fx / fl + car.vel[1] * fy / fl;
+
+    // How fast to go: slower the closer the target, and slower still when it needs a sharp turn.
+    let want = cap;
+    if (distance < 1800) want = Math.min(want, 350 + distance * 0.7);
+    if (turn > 0.5) want = Math.min(want, 300 + (1.3 - Math.min(turn, 1.3)) * 800);
+    const throttle = clamp((want - speed) / 180, -1, 1);
+    const steer = clamp(angle * 2.2, -1, 1);
     this.controls[i] = {
-      throttle: distance < 250 && speed > 600 ? 0 : 1,
-      steer: clamp(side * 3, -1, 1),
-      pitch: 0, yaw: clamp(side * 3, -1, 1), roll: 0,
+      throttle,
+      steer,
+      pitch: 0, yaw: steer, roll: 0,
       jump: false,
-      boost: ahead > 0.96 && distance > 1500 && speed < cap - 150 && car.boost > 25,
-      handbrake: turnHard && speed > 500
+      boost: turn < 0.15 && distance > 1500 && speed < cap - 150 && speed < want - 100 && car.boost > 25,
+      handbrake: turn > 1.0 && Math.abs(speed) > 450
     };
     return this.controls[i];
   }
