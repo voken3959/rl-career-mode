@@ -109,11 +109,12 @@ const THROTTLE_ACCEL = 1600;
 const THROTTLE_MAX_SPEED = 1410;
 const BRAKE_ACCEL = 3500;
 const COAST_DECEL = 525;
-const JUMP_IMPULSE = 325;       // a little stronger than the game's 292 so flips clear the ground
-const JUMP_HOLD_ACCEL = 1560;
+const JUMP_IMPULSE = 350;       // stronger than the game's 292 so flips clear the ground
+const JUMP_HOLD_ACCEL = 1650;
 const JUMP_HOLD_MAX = 0.2;
 const FLIP_IMPULSE = 500;
 const FLIP_TIME = 0.65;
+const FLIP_SPIN = 8.8; // rad/s while flipping. The normal 5.5 cap only turned a flip about 200 degrees, a half flip
 // Air control: angular acceleration per unit input and damping per axis (roll, pitch, yaw).
 const AIR_ROLL = 36.08;
 const AIR_PITCH = 12.146;
@@ -326,8 +327,8 @@ function stepCar(car, ctl, dt) {
         const d = car.flipLocal;
         let cancel = 0;
         if (Math.abs(d[0]) > 0.1) cancel = clamp((ctl.pitch || 0) * Math.sign(d[0]), 0, 1);
-        const wRight = CAR_MAX_ANG * d[0] * (1 - cancel);
-        const wFwd = -CAR_MAX_ANG * d[1];
+        const wRight = FLIP_SPIN * d[0] * (1 - cancel);
+        const wFwd = -FLIP_SPIN * d[1];
         car.angvel = add(mul(right, wRight), mul(car.fwd, wFwd));
         // The flip also bleeds off some vertical speed, but only briefly and a little way in (as in the game), so a
         // flip from a low jump does not stall and drop the nose onto the floor.
@@ -348,7 +349,8 @@ function stepCar(car, ctl, dt) {
       car.angvel = add(add(mul(car.fwd, wF), mul(right, wR)), mul(car.up, wU));
     }
     const spin = length(car.angvel);
-    if (spin > CAR_MAX_ANG) car.angvel = mul(car.angvel, CAR_MAX_ANG / spin);
+    const spinLimit = car.isFlipping ? FLIP_SPIN : CAR_MAX_ANG;
+    if (spin > spinLimit) car.angvel = mul(car.angvel, spinLimit / spin);
 
     // Turn the car by its angular velocity.
     if (spin > 1e-6) {
