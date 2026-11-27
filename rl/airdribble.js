@@ -25,6 +25,7 @@ export class AirDribble {
   begin() {
     this.phase = 'approach';
     this.timer = 0;
+    this.stall = 0;
     this.jumpTicks = 0;
     this.airTime = 0;
   }
@@ -32,6 +33,7 @@ export class AirDribble {
   end(cooldown = 4) {
     this.phase = 'idle';
     this.timer = 0;
+    this.stall = 0;
     this.jumpTicks = 0;
     this.airTime = 0;
     this.cooldown = cooldown;
@@ -42,7 +44,8 @@ export class AirDribble {
 export function canStart(engine, i) {
   const car = engine.cars[i];
   const ball = engine.ball;
-  if (car.isDemoed || car.boost < 45 || !car.onGround) return false;
+  // Only from the floor: the controller assumes a flat surface, and on a wall the car just crawls up and waits below the ball.
+  if (car.isDemoed || car.boost < 45 || !car.onGround || car.up[2] < 0.85) return false;
   const dx = ball.pos[0] - car.pos[0];
   const dy = ball.pos[1] - car.pos[1];
   const dist = Math.hypot(dx, dy);
@@ -84,6 +87,13 @@ export function airControls(engine, i, state, error) {
 
   if (state.phase === 'approach') {
     if (!car.onGround) { state.phase = 'air'; return airControls(engine, i, state, error); }
+    // Went up a wall, took too long, or is hanging about instead of closing on the ball: leave it to the network.
+    const flatSpeed = Math.hypot(car.vel[0], car.vel[1]);
+    state.stall = flatSpeed < 250 ? state.stall + DT : 0;
+    if (car.up[2] < 0.75 || state.timer > 3.5 || state.stall > 0.7) {
+      state.end(5);
+      return null;
+    }
     // Drive to where the ball will be, then jump when it is close enough to reach.
     const target = [seen[0] + ball.vel[0] * 0.5, seen[1] + ball.vel[1] * 0.5];
     const dir = [target[0] - car.pos[0], target[1] - car.pos[1]];

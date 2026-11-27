@@ -28,12 +28,14 @@ export class GroundDribble {
     this.phase = 'carry';
     this.timer = 0;
     this.turnTime = 0;
+    this.stall = 0;
   }
 
   end(cooldown = 3) {
     this.phase = 'idle';
     this.timer = 0;
     this.turnTime = 0;
+    this.stall = 0;
     this.cooldown = cooldown;
   }
 }
@@ -49,6 +51,9 @@ export function canStartGround(engine, i) {
   const dist = Math.hypot(dx, dy);
   if (ball.pos[2] > 230 || Math.abs(ball.vel[2]) > 450 || Math.hypot(ball.vel[0], ball.vel[1]) > 1700) return false;
   if (dist < 180 || dist > 1500) return false;
+  // Kickoff: the ball is still, in the middle. Let the network take it (flip, speed, hit); carrying a ball that is not
+  // moving only made the car slow down and stop in front of it.
+  if (Math.hypot(ball.vel[0], ball.vel[1]) < 60 && Math.hypot(ball.pos[0], ball.pos[1]) < 300) return false;
   if (attack * ball.pos[1] < -3200) return false; // deep in our own end: clear it rather than carry it
   const flat = Math.hypot(car.fwd[0], car.fwd[1]) || 1;
   if ((dx * car.fwd[0] + dy * car.fwd[1]) / (dist * flat) < 0.6) return false;
@@ -122,11 +127,19 @@ export function groundControls(engine, i, state, error) {
   const speed = car.vel[0] * fwd[0] + car.vel[1] * fwd[1];
   const ballAlong = ball.vel[0] * fwd[0] + ball.vel[1] * fwd[1];
   const gap = dist * Math.max(0.2, facing) - HOLD_GAP;
-  let target = shooting ? 2000 : ballAlong + clamp(gap * 2.2, -700, 750);
+  // Always keep closing on the ball by at least a little: matching its speed exactly stops the car just short of
+  // a ball that is still, where it would wait in front of it instead of pushing it on.
+  let target = shooting ? 2000 : ballAlong + clamp(gap * 2.2, 280, 750);
   // Turn first when the ball is well off to the side: slow down so it is not driven past.
   if (Math.abs(angle) > 0.7 && !shooting) target = Math.min(target, 500 + Math.abs(ballAlong));
   target = clamp(target, 0, 1900);
   const throttle = clamp((target - speed) / 160, -1, 1);
+  // Barely moving while right behind the ball means it is waiting rather than carrying: give up.
+  state.stall = Math.abs(speed) < 150 && dist < 600 ? state.stall + DT : Math.max(0, state.stall - DT);
+  if (state.stall > 0.7) {
+    state.end(5);
+    return null;
+  }
   const boost = (shooting || target - speed > 350) && Math.abs(angle) < 0.35 && car.boost > 0 && speed < 1900;
 
   return { throttle, steer, pitch: 0, yaw: steer, roll: 0, jump: false, boost, handbrake: false };
