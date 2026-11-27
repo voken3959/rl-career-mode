@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#08060c" />
+  <meta name="theme-color" content="#101735" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Road To Pro — Match Center</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="match3d.css?v=17" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,500;600;700&display=swap" />
+  <link rel="stylesheet" href="match3d.css?v=18" />
   <script type="importmap">
     {
       "imports": {
@@ -25,17 +28,17 @@
   <div id="loading" class="loading">
     <div class="loading-brand">
       <img class="loading-logo" src="assets/road-to-pro.png" alt="Road To Pro" width="2172" height="724" />
-      <span class="loading-kicker">Match Center</span>
+      <span class="loading-kicker">Match center</span>
     </div>
-    <div class="loading-title">Preparing the arena</div>
+    <div class="loading-title">Getting the arena ready</div>
     <div class="loading-bar"><span></span></div>
-    <div class="loading-sub">Stadium · crowd · lighting</div>
+    <div class="loading-sub">Setting up the pitch</div>
   </div>
 
   <header class="hud-top">
     <div class="hud-brand">
       <img class="hud-logo" src="assets/road-to-pro.png" alt="Road To Pro" width="2172" height="724" />
-      <span class="hud-section">Match Center</span>
+      <span class="hud-section">Match center</span>
     </div>
 
     <div class="hud-rank">
@@ -70,7 +73,7 @@
 
   <aside class="panel panel-left">
     <div class="panel-block">
-      <div class="panel-heading"><span>Camera</span><span class="panel-hint">1–4</span></div>
+      <div class="panel-heading"><span>Camera</span><span class="panel-hint">keys 1–6, D</span></div>
       <div class="cam-grid">
         <button class="cam-btn active" data-cam="car0"><span>1</span> Blue 1</button>
         <button class="cam-btn" data-cam="car1"><span>2</span> Blue 2</button>
@@ -94,7 +97,7 @@
     <div class="panel-block">
       <div class="panel-heading"><span>Difficulty</span></div>
       <select id="skillSelect" class="select">
-        <option value="bronze" selected>Bronze — rookie mistakes</option>
+        <option value="bronze" selected>Bronze</option>
         <option value="silver">Silver</option>
         <option value="gold">Gold</option>
         <option value="platinum">Platinum</option>
@@ -111,7 +114,7 @@
     </div>
 
     <div class="panel-block">
-      <div class="panel-heading"><span>Telemetry</span></div>
+      <div class="panel-heading"><span>Stats</span></div>
       <div class="stat-list">
         <div class="stat-row"><span>Speed</span><strong id="statSpeed">—</strong></div>
         <div class="stat-row"><span>Accuracy</span><strong id="statAccuracy">—</strong></div>
@@ -138,11 +141,11 @@
       <button class="control-btn" id="cameraBtn">Camera · Blue 1</button>
       <button class="control-btn" id="speedBtn">Speed 1×</button>
     </div>
-    <div class="hint"><kbd>Space</kbd> pause <kbd>C</kbd> camera <kbd>R</kbd> restart <kbd>+</kbd><kbd>−</kbd> speed</div>
+    <div class="hint"><kbd>Space</kbd> pause <kbd>C</kbd> camera <kbd>R</kbd> restart <kbd>M</kbd> mute</div>
   </div>
 
   <div class="replay-badge" id="replayBadge" hidden>
-    <span class="replay-dot"></span><strong>REPLAY</strong>
+    <span class="replay-dot"></span><strong>Replay</strong>
     <button type="button" id="replaySkip">Skip</button>
   </div>
 
