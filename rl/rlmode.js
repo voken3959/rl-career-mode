@@ -262,6 +262,11 @@ export class RLMatch {
     return this.final;
   }
 
+  /** One line per car describing the scripted dribbles, for the ?debug overlay. */
+  debugText() {
+    return this.air.map((a, i) => `car ${i + 1}  air: ${a.active ? a.phase + ' ' + a.timer.toFixed(1) + 's' : 'idle'}  starts ${a.starts || 0}  last: ${a.last || '-'}  boost ${Math.round(this.engine.cars[i].boost)}  ground: ${this.ground[i].active ? 'on' : 'off'}`).join('\n');
+  }
+
   /** Stop the cars acting but keep the physics running (used after a goal). */
   idle() {
     this.controls = this.engine.cars.map(() => ({}));
