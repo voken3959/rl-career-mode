@@ -7,6 +7,7 @@ import { NextoPolicy } from './nexto.js';
 import { FIELD_Y, DT } from './constants.js';
 import { AirDribble, canStart, airControls } from './airdribble.js';
 import { Rotation } from './rotation.js';
+import { CircleGuard } from './circleguard.js';
 import { GroundDribble, canStartGround, groundControls } from './dribble.js';
 import { landingAssist, rightingRoll } from './recovery.js';
 
@@ -63,6 +64,7 @@ export class RLMatch {
     this.air = this.engine.cars.map(() => new AirDribble());
     this.ground = this.engine.cars.map(() => new GroundDribble());
     this.rotation = new Rotation(this.engine.cars.length);
+    this.guard = new CircleGuard(this.engine.cars.length);
     this.wasGround = this.engine.cars.map(() => true);
     this.assistOn = this.engine.cars.map(() => false);
     this.flipTicks = this.engine.cars.map(() => 0);
@@ -100,6 +102,7 @@ export class RLMatch {
     this.air.forEach(a => a.end(2));
     this.ground.forEach(g => g.end(2));
     this.rotation.reset();
+    this.guard.reset();
     this.wasGround.fill(true);
     this.assistOn.fill(false);
     this.flipTicks.fill(0);
@@ -196,6 +199,26 @@ export class RLMatch {
       }
       for (let i = 0; i < cars.length; i++) {
         if (this.rotation.override[i] && !this.air[i].active && !this.ground[i].active) this.controls[i] = this.rotation.controls[i];
+      }
+    }
+    // Anti-circling: a car that keeps spinning round without getting anywhere is sent at the ball (or back to its
+    // covering spot) with arrival-aware driving for a moment, and any scripted dribble it was in is dropped.
+    if (this.policy) {
+      const ball = this.engine.ball;
+      for (const i of this.guard.sample(this.engine, this.tickCount)) {
+        this.air[i].end(4);
+        this.ground[i].end(5);
+      }
+      for (let i = 0; i < cars.length; i++) {
+        if (this.guard.until[i] <= this.engine.time) continue;
+        if (!cars[i].onGround || cars[i].isDemoed) { this.guard.until[i] = 0; continue; }
+        if (this.rotation.chaser[i]) {
+          this.rotation.target[i] = [ball.pos[0] + ball.vel[0] * 0.3, ball.pos[1] + ball.vel[1] * 0.3];
+          this.rotation.arrive[i] = 350;
+        }
+        if (this.tickCount % 4 === 0) this.rotation.drive(this.engine, i, this.settings.speedCap);
+        if (this.rotation.done[i]) this.guard.until[i] = 0;
+        else if (this.rotation.controls[i].steer !== undefined) this.controls[i] = this.rotation.controls[i];
       }
     }
     this.engine.tick(this.recover());
