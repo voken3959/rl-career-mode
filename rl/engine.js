@@ -67,7 +67,13 @@ function mainDistance(x, y, z) {
   const outside = Math.sqrt(ox * ox + oy * oy);
   const inside = Math.min(Math.max(qx, qy), 0);
   const wall = CORNER_RADIUS - outside - inside;
-  return Math.min(edgeDistance(wall, z, RAMP_RADIUS), edgeDistance(wall, FIELD_Z - z, RAMP_RADIUS));
+  // The floor ramp along the back wall stops at the goal mouth: the goal floor is flat. Without this the ramp rose
+  // about 40 uu in front of each goal and then dropped away inside it, a bump that launched cars and the ball. The
+  // ramp fades back in over the last 150 uu towards each post so there is no step there either.
+  const rampWeight = clamp((Math.abs(x) - (GOAL_HALF_WIDTH - 150)) / 150, 0, 1);
+  const floorRamp = edgeDistance(wall, z, RAMP_RADIUS);
+  const floor = rampWeight >= 1 ? floorRamp : Math.min(wall, z) + (floorRamp - Math.min(wall, z)) * rampWeight;
+  return Math.min(floor, edgeDistance(wall, FIELD_Z - z, RAMP_RADIUS));
 }
 
 function goalDistance(x, y, z) {
