@@ -30,7 +30,7 @@ export class AirDribble {
     this.airTime = 0;
   }
 
-  end(cooldown = 4) {
+  end(cooldown = 2.5) {
     this.phase = 'idle';
     this.timer = 0;
     this.stall = 0;
@@ -45,12 +45,14 @@ export function canStart(engine, i) {
   const car = engine.cars[i];
   const ball = engine.ball;
   // Only from the floor: the controller assumes a flat surface, and on a wall the car just crawls up and waits below the ball.
-  if (car.isDemoed || car.boost < 45 || !car.onGround || car.up[2] < 0.85) return false;
+  if (car.isDemoed || car.boost < 30 || !car.onGround || car.up[2] < 0.8) return false;
   const dx = ball.pos[0] - car.pos[0];
   const dy = ball.pos[1] - car.pos[1];
   const dist = Math.hypot(dx, dy);
   const height = ball.pos[2];
-  if (height < 280 || height > 1300 || len(ball.vel) > 1900 || dist < 350 || dist > 2400) return false;
+  // A ball that is only bouncing off the floor is no use: it has to be up there and staying up for a moment.
+  const later = height + ball.vel[2] * 0.5 - 0.5 * 650 * 0.25;
+  if (height < 200 || later < 220 || height > 1700 || len(ball.vel) > 2400 || dist < 250 || dist > 3200) return false;
   // Only the closest player on the team goes for it.
   for (let j = 0; j < engine.cars.length; j++) {
     if (j === i) continue;
@@ -60,7 +62,7 @@ export function canStart(engine, i) {
   }
   const flat = Math.hypot(car.fwd[0], car.fwd[1]) || 1;
   const facing = (dx * car.fwd[0] + dy * car.fwd[1]) / (dist * flat);
-  return facing > 0.5;
+  return facing > 0.3;
 }
 
 /**
@@ -78,7 +80,8 @@ export function airControls(engine, i, state, error) {
   const flatDist = Math.hypot(toBallFlat[0], toBallFlat[1]);
   const dist3 = len(sub(seen, car.pos));
 
-  if (car.isDemoed || state.timer > 8 || car.boost < 5 || ball.pos[2] < 130 || dist3 > 3000) {
+  // The ball dropping to the floor only ends it once the car has actually left the ground after it.
+  if (car.isDemoed || state.timer > 8 || car.boost < 5 || dist3 > 3600 || (state.phase !== 'approach' && ball.pos[2] < 130)) {
     state.end();
     return null;
   }
@@ -91,7 +94,7 @@ export function airControls(engine, i, state, error) {
     const flatSpeed = Math.hypot(car.vel[0], car.vel[1]);
     state.stall = flatSpeed < 250 ? state.stall + DT : 0;
     if (car.up[2] < 0.75 || state.timer > 3.5 || state.stall > 0.7) {
-      state.end(5);
+      state.end(3);
       return null;
     }
     // Drive to where the ball will be, then jump when it is close enough to reach.
@@ -101,7 +104,8 @@ export function airControls(engine, i, state, error) {
     const alongRight = (dir[0] * right[0] + dir[1] * right[1]) / dirLen;
     const alongFwd = (dir[0] * car.fwd[0] + dir[1] * car.fwd[1]) / (dirLen * (Math.hypot(car.fwd[0], car.fwd[1]) || 1));
     const speed = len(car.vel);
-    if (flatDist < 650 && ball.pos[2] > 260 && alongFwd > 0.8) {
+    const ballLater = ball.pos[2] + ball.vel[2] * 0.4 - 0.5 * 650 * 0.16;
+    if (flatDist < 700 && ball.pos[2] > 230 && ballLater > 200 && alongFwd > 0.8) {
       state.phase = 'launch';
       state.jumpTicks = 14;
     }
