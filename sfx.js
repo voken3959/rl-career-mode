@@ -7,7 +7,7 @@ let ctx = null;
 let master = null;
 let noise = null;
 let muted = false;
-let volume = 0.7;
+let volume = 0.5;
 const lastPlayed = {};
 const boostVoices = [];
 
@@ -126,7 +126,7 @@ export const sfx = {
   hit(speed, pan = 0, near = 1) {
     if (!ready() || !throttle('hit', 0.05)) return;
     const power = Math.max(0.15, Math.min(1, speed / 2800));
-    const out = output(pan, 0.9 * power * near);
+    const out = output(pan, 0.6 * power * near);
     tone('sine', 190 + power * 60, 45, 0.16 + power * 0.1, 1, out);
     burst('bandpass', 1400 + power * 1800, 500, 1.2, 0.07, 0.8, out);
     if (power > 0.6) burst('highpass', 3500, 3500, 0.5, 0.04, 0.5, out);
@@ -143,11 +143,10 @@ export const sfx = {
 
   /** Picking up a boost pad. */
   pickup(big, pan = 0, near = 1) {
-    if (!ready() || !throttle('pickup', 0.08)) return;
-    const out = output(pan, (big ? 0.5 : 0.3) * near);
-    tone('triangle', big ? 520 : 780, big ? 1040 : 1170, 0.14, 1, out);
-    tone('triangle', big ? 780 : 1170, big ? 1560 : 1750, 0.16, 0.7, out, 0.07);
-    if (big) tone('sine', 260, 520, 0.3, 0.6, out, 0.02);
+    if (!ready() || !throttle('pickup', 0.12)) return;
+    const out = output(pan, (big ? 0.16 : 0.09) * near);
+    tone('sine', big ? 392 : 523, big ? 392 : 523, 0.18, 1, out);
+    tone('sine', big ? 587 : 784, big ? 587 : 784, 0.22, 0.6, out, 0.06);
   },
 
   jump(pan = 0, near = 1) {
@@ -175,18 +174,18 @@ export const sfx = {
       src.loop = true;
       const band = ctx.createBiquadFilter();
       band.type = 'bandpass';
-      band.frequency.value = 650;
-      band.Q.value = 0.7;
+      band.frequency.value = 420;
+      band.Q.value = 0.5;
       const low = ctx.createBiquadFilter();
       low.type = 'lowpass';
-      low.frequency.value = 2400;
+      low.frequency.value = 900;
       const gain = ctx.createGain();
       gain.gain.value = 0;
       const rumble = ctx.createOscillator();
-      rumble.type = 'sawtooth';
+      rumble.type = 'sine';
       rumble.frequency.value = 58 + index * 3;
       const rumbleGain = ctx.createGain();
-      rumbleGain.gain.value = 0.12;
+      rumbleGain.gain.value = 0.05;
       let tail = gain;
       let panner = null;
       if (ctx.createStereoPanner) { panner = ctx.createStereoPanner(); gain.connect(panner); tail = panner; }
@@ -198,7 +197,7 @@ export const sfx = {
       voice = { gain, panner };
       boostVoices[index] = voice;
     }
-    const target = muted || ctx.state !== 'running' ? 0 : 0.32 * Math.max(0, Math.min(1, level));
+    const target = muted || ctx.state !== 'running' ? 0 : 0.06 * Math.max(0, Math.min(1, level));
     // Skip redundant updates: this is called every simulation step.
     const key = Math.round(target * 40) + ':' + Math.round(pan * 10);
     if (voice.key === key) return;
@@ -215,20 +214,13 @@ export const sfx = {
   /** Goal: a deep boom, a burst of noise and a rising horn chord. quiet is used for the replay's repeat. */
   goal(quiet = false) {
     if (!ready()) return;
-    const level = quiet ? 0.55 : 1;
-    const out = output(0, 0.85 * level);
-    tone('sine', 110, 28, 1.4, 1, out);
-    burst('lowpass', 3200, 120, 0.8, 1.3, 1, out);
-    burst('highpass', 2500, 900, 0.7, 0.4, 0.35, out);
-    const horn = output(0, 0.22 * level);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1800;
-    lp.connect(horn);
-    [220, 277.2, 329.6].forEach((f, k) => {
-      tone('sawtooth', f * 0.97, f, 1.5, 0.6, lp, 0.12 + k * 0.02);
-      tone('square', f * 0.5, f * 0.5, 1.5, 0.25, lp, 0.12);
-    });
+    const level = quiet ? 0.5 : 1;
+    const out = output(0, 0.3 * level);
+    tone('sine', 90, 36, 0.9, 1, out);
+    burst('lowpass', 1200, 150, 0.7, 0.7, 0.25, out);
+    // A short rising major chord, soft sines.
+    const chime = output(0, 0.13 * level);
+    [392, 494, 587, 784].forEach((f, k) => tone('sine', f, f, 0.9, 0.7, chime, 0.1 + k * 0.09));
   },
 
   /** Kickoff countdown tick, and the longer one when play starts. */
