@@ -23,6 +23,7 @@ export class AirDribble {
   }
 
   begin() {
+    this.starts = (this.starts || 0) + 1;
     this.phase = 'approach';
     this.timer = 0;
     this.stall = 0;
@@ -30,7 +31,8 @@ export class AirDribble {
     this.airTime = 0;
   }
 
-  end(cooldown = 2.5) {
+  end(cooldown = 2.5, why = '') {
+    if (this.phase && this.phase !== 'idle') { this.last = why || 'ended'; this.lastTime = this.timer; }
     this.phase = 'idle';
     this.timer = 0;
     this.stall = 0;
@@ -45,7 +47,7 @@ export function canStart(engine, i) {
   const car = engine.cars[i];
   const ball = engine.ball;
   // Only from the floor: the controller assumes a flat surface, and on a wall the car just crawls up and waits below the ball.
-  if (car.isDemoed || car.boost < 30 || !car.onGround || car.up[2] < 0.8) return false;
+  if (car.isDemoed || car.boost < 45 || !car.onGround || car.up[2] < 0.8) return false;
   const dx = ball.pos[0] - car.pos[0];
   const dy = ball.pos[1] - car.pos[1];
   const dist = Math.hypot(dx, dy);
@@ -82,7 +84,7 @@ export function airControls(engine, i, state, error) {
 
   // The ball dropping to the floor only ends it once the car has actually left the ground after it.
   if (car.isDemoed || state.timer > 8 || car.boost < 5 || dist3 > 3600 || (state.phase !== 'approach' && ball.pos[2] < 130)) {
-    state.end();
+    state.end(2.5, car.boost < 5 ? 'out of boost' : state.timer > 8 ? 'timeout' : dist3 > 3600 ? 'ball too far' : car.isDemoed ? 'demoed' : 'ball fell');
     return null;
   }
 
@@ -94,7 +96,7 @@ export function airControls(engine, i, state, error) {
     const flatSpeed = Math.hypot(car.vel[0], car.vel[1]);
     state.stall = flatSpeed < 250 ? state.stall + DT : 0;
     if (car.up[2] < 0.75 || state.timer > 3.5 || state.stall > 0.7) {
-      state.end(3);
+      state.end(3, car.up[2] < 0.75 ? 'left the floor' : state.timer > 3.5 ? 'approach too slow' : 'stalled');
       return null;
     }
     // Drive to where the ball will be, then jump when it is close enough to reach.
@@ -105,7 +107,7 @@ export function airControls(engine, i, state, error) {
     const alongFwd = (dir[0] * car.fwd[0] + dir[1] * car.fwd[1]) / (dirLen * (Math.hypot(car.fwd[0], car.fwd[1]) || 1));
     const speed = len(car.vel);
     const ballLater = ball.pos[2] + ball.vel[2] * 0.4 - 0.5 * 650 * 0.16;
-    if (flatDist < 700 && ball.pos[2] > 230 && ballLater > 200 && alongFwd > 0.8) {
+    if (flatDist < 900 && ball.pos[2] > 230 && ballLater > 200 && alongFwd > 0.6) {
       state.phase = 'launch';
       state.jumpTicks = 14;
     }
@@ -126,7 +128,7 @@ export function airControls(engine, i, state, error) {
   // In the air: point the nose just under and behind the ball so contact lifts it toward goal.
   state.airTime += DT;
   if (car.onGround && state.airTime > 0.3) {
-    state.end();
+    state.end(2.5, 'landed');
     return null;
   }
 

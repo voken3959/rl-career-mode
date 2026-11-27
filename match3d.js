@@ -2479,7 +2479,11 @@ function setText(key, element, value) {
   element.textContent = value;
 }
 
+const debugBox = params.get('debug') ? document.getElementById('dbg') : null;
+if (debugBox) debugBox.hidden = false;
+
 function updateUI() {
+  if (debugBox && rl) debugBox.textContent = rl.debugText();
   setText('blue', dom.scoreBlue, scoreBlue);
   setText('orange', dom.scoreOrange, scoreOrange);
   setText('clock', dom.clock, formatClock(clock));
