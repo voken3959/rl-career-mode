@@ -125,6 +125,19 @@ function notify(title, detail, team) {
   window.setTimeout(() => notice.remove(), 2400);
 }
 
+// Big 3-2-1-GO numbers in the middle of the screen at kickoff.
+let countdownTimer = 0;
+function showCountdown(text) {
+  const el = document.getElementById('countdown');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('show');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('show');
+  window.clearTimeout(countdownTimer);
+  countdownTimer = window.setTimeout(() => el.classList.remove('show'), text === 'GO!' ? 800 : 950);
+}
+
 function formatClock(seconds) {
   const s = Math.max(0, Math.ceil(seconds));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -679,7 +692,8 @@ let paused = false;
 let speedMultiplier = 1;
 let cameraMode = 'car0';
 let matchState = 'KICKOFF';
-let kickoffTimer = 1.6;
+let kickoffTimer = RL_MODE ? 3 : 1.6;
+let clockRunning = true; // in RL mode the clock waits for the first touch of each kickoff
 let kickoffPhase = 0;
 let kickoffCount = 0;
 let kickoffStage = 9;
@@ -900,20 +914,22 @@ function stepRL(dt) {
   if (kickoffTimer > 0) {
     kickoffTimer -= dt;
     matchState = kickoffTimer > 0 ? 'KICKOFF' : 'PLAYING';
-    // Countdown ticks at 1.8, 1.2 and 0.6 s, then the go tone.
-    const stage = kickoffTimer <= 0 ? -1 : Math.floor(kickoffTimer / 0.6);
+    // 3, 2, 1, GO: a number on screen and a tick for each second, then the go tone.
+    const stage = kickoffTimer <= 0 ? -1 : Math.ceil(kickoffTimer);
     if (stage !== kickoffStage) {
       kickoffStage = stage;
-      if (stage === -1) sfx.beep(true);
-      else if (stage <= 2) sfx.beep(false);
+      if (stage === -1) { sfx.beep(true); showCountdown('GO!'); }
+      else if (stage <= 3) { sfx.beep(false); showCountdown(String(stage)); }
     }
     return;
   }
 
-  matchState = 'PLAYING';
-  clock -= dt;
+  matchState = clockRunning ? 'PLAYING' : 'KICKOFF';
+  if (clockRunning) clock -= dt;
   for (let i = 0; i < ticks; i++) rl.tick();
   const events = rl.engine.consumeEvents();
+  // The match clock starts at the first touch of the ball.
+  if (!clockRunning && events.touches.length) clockRunning = true;
   syncFromRL();
   recordReplayFrame();
   playEventSounds(events);
@@ -946,7 +962,8 @@ function resetPositions(message) {
     rlPrevTouch = null;
     rlShot = null;
     matchState = 'KICKOFF';
-    kickoffTimer = 2.4;
+    clockRunning = false;
+    kickoffTimer = 3;
     goalTimer = 0;
     goalLocked = false;
     ballMesh.quaternion.identity();
