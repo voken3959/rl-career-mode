@@ -163,7 +163,7 @@ export class RLMatch {
         if (dribble.active || carry.active) continue;
         if ((this.tickCount + i * spread) % period === 0) {
           // Maybe start an air dribble or a ground dribble instead of asking the network.
-          if (dribble.cooldown <= 0 && Math.random() < this.settings.air * 0.6 && canStart(this.engine, i)) {
+          if (dribble.cooldown <= 0 && Math.random() < Math.min(1, this.settings.air * 1.2) && canStart(this.engine, i)) {
             dribble.begin();
           } else if (carry.cooldown <= 0 && Math.random() < this.settings.carry * 0.6 && canStartGround(this.engine, i)) {
             carry.begin();
