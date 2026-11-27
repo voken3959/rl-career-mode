@@ -39,7 +39,10 @@ export const TIER_SETTINGS = {
   champion:      { carry: 0.85, recovery: 0.85, temperature: 0.9,  period: 8,  lapse: 0.03,  misread: 130, speedCap: 1500, air: 0.5, rotation: 0.8 },
   grandchampion: { carry: 0.9, recovery: 0.92, temperature: 0.7,  period: 7,  lapse: 0.02,  misread: 90,  speedCap: 1600, air: 0.7, rotation: 0.9 },
   ssl:           { carry: 0.95, recovery: 0.97, temperature: 0.55, period: 6,  lapse: 0.015, misread: 50,  speedCap: 1650, air: 0.9, rotation: 0.95 },
-  pro:           { carry: 1, recovery: 1, temperature: 0.3,  period: 8,  lapse: 0.004, misread: 8,   speedCap: 1700, air: 1, bot: 'nexto', rotation: 1 }
+  // Pro is the Nexto network playing as it was trained: full speed, low sampling temperature and none of the scripted
+  // ground-dribble / rotation takeovers, which were replacing its touches with cruder ones. Only a light air-dribble
+  // helper and the landing assist remain.
+  pro:           { carry: 0, recovery: 1, temperature: 0.15, period: 8,  lapse: 0.003, misread: 6,   speedCap: 2300, air: 0.4, bot: 'nexto', rotation: 0 }
 };
 
 export class RLMatch {
