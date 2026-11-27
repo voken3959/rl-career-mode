@@ -716,7 +716,8 @@ let pinchCount = 0;
 let lastPinch = null;
 let scoreBlue = 0;
 let scoreOrange = 0;
-let clock = 180;
+const MATCH_SECONDS = 300; // five-minute matches
+let clock = MATCH_SECONDS;
 let paused = false;
 let speedMultiplier = 1;
 let cameraMode = 'car0';
@@ -970,7 +971,7 @@ function stepRL(dt) {
   }
 
   if (clock <= 0) {
-    clock = 180;
+    clock = MATCH_SECONDS;
     const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
     notify('FULL TIME', result, 'neutral');
     scoreBlue = 0;
@@ -2320,7 +2321,7 @@ function step(dt) {
   resolveBallPinch();
 
   if (clock <= 0) {
-    clock = 180;
+    clock = MATCH_SECONDS;
     const result = scoreBlue === scoreOrange ? 'DRAW' : (scoreBlue > scoreOrange ? 'BLUE WIN' : 'ORANGE WIN');
     notify('FULL TIME', result, 'neutral');
     scoreBlue = 0;
@@ -2560,7 +2561,7 @@ function setMode(n) {
   refreshCameraButtons();
   scoreBlue = 0;
   scoreOrange = 0;
-  clock = 180;
+  clock = MATCH_SECONDS;
   if (replay.active) endReplay();
   resetPositions('New ' + n + 'v' + n + ' match.');
 }
@@ -2576,7 +2577,7 @@ dom.skillSelect.addEventListener('change', () => {
   applySkillUI();
   scoreBlue = 0;
   scoreOrange = 0;
-  clock = 180;
+  clock = MATCH_SECONDS;
   resetPositions('Fresh kickoff at ' + skill.label + ' level.');
 });
 
@@ -2595,7 +2596,7 @@ dom.playBtn.addEventListener('click', () => {
 dom.replayBtn.addEventListener('click', () => {
   scoreBlue = 0;
   scoreOrange = 0;
-  clock = 180;
+  clock = MATCH_SECONDS;
   resetPositions('Match restarted.');
 });
 
@@ -2979,7 +2980,7 @@ window.__rl3d = {
     goalTimer = 0;
     goalLocked = false;
     matchState = 'PLAYING';
-    clock = 180;
+    clock = MATCH_SECONDS;
   },
   simulate(seconds) {
     const frames = Math.max(1, Math.round(seconds * 60));

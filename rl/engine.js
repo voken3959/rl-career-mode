@@ -109,8 +109,8 @@ const THROTTLE_ACCEL = 1600;
 const THROTTLE_MAX_SPEED = 1410;
 const BRAKE_ACCEL = 3500;
 const COAST_DECEL = 525;
-const JUMP_IMPULSE = 292;
-const JUMP_HOLD_ACCEL = 1458.333;
+const JUMP_IMPULSE = 325;       // a little stronger than the game's 292 so flips clear the ground
+const JUMP_HOLD_ACCEL = 1560;
 const JUMP_HOLD_MAX = 0.2;
 const FLIP_IMPULSE = 500;
 const FLIP_TIME = 0.65;
@@ -329,8 +329,9 @@ function stepCar(car, ctl, dt) {
         const wRight = CAR_MAX_ANG * d[0] * (1 - cancel);
         const wFwd = -CAR_MAX_ANG * d[1];
         car.angvel = add(mul(right, wRight), mul(car.fwd, wFwd));
-        // The flip also bleeds off some vertical speed early on.
-        if (car.flipTimer < 0.2) car.vel[2] *= Math.pow(0.5, dt / 0.2);
+        // The flip also bleeds off some vertical speed, but only briefly and a little way in (as in the game), so a
+        // flip from a low jump does not stall and drop the nose onto the floor.
+        if (car.flipTimer >= 0.15 && car.flipTimer < 0.21) car.vel[2] *= Math.pow(0.5, dt / 0.06);
       } else {
         car.isFlipping = false;
       }
