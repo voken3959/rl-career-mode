@@ -134,9 +134,20 @@ export function airControls(engine, i, state, error) {
 
   const lead = [seen[0] + ball.vel[0] * 0.12, seen[1] + ball.vel[1] * 0.12, seen[2] + ball.vel[2] * 0.12];
   const aim = [lead[0], lead[1] - attack * 70, lead[2] - 40];
-  const toAim = sub(aim, car.pos);
-  const aimDist = len(toAim) || 1;
-  const d = [toAim[0] / aimDist, toAim[1] / aimDist, toAim[2] / aimDist];
+  const gap = sub(aim, car.pos);
+  const aimDist = len(gap) || 1;
+
+  // Boost only pushes along the nose, and a car already flying sideways keeps flying sideways, so pointing at the
+  // ball is not enough: aim the nose along the acceleration that closes the gap AND cancels the velocity difference
+  // (plus enough to hold against gravity and a little push toward the opponent's goal).
+  const rv = sub(ball.vel, car.vel);
+  const want = [
+    gap[0] * 3 + rv[0] * 3.4,
+    gap[1] * 3 + rv[1] * 3.4 + attack * 250,
+    gap[2] * 3 + rv[2] * 3.4 + 650
+  ];
+  const wantLen = len(want) || 1;
+  const d = [want[0] / wantLen, want[1] / wantLen, want[2] / wantLen];
 
   const local = [dot(d, car.fwd), dot(d, right), dot(d, car.up)];
   const pitchRate = -dot(car.angvel, right);
@@ -149,10 +160,9 @@ export function airControls(engine, i, state, error) {
   const yaw = clamp(4 * local[1] - 1.3 * yawRate, -1, 1);
   const roll = clamp(3 * right[2] - 0.6 * rollRate, -1, 1);
 
-  // Boost only while pointing at the ball and closing slower than we want to, so it is nudged rather than hit.
-  const closing = dot(sub(car.vel, ball.vel), d);
-  const wanted = clamp(aimDist * 1.5, 100, 700);
-  const boost = local[0] > 0.8 && closing < wanted && car.boost > 0;
+  // Burn only when pointing roughly where the acceleration is wanted and a decent push is needed, so it is
+  // pulsed to hold the ball up rather than blasting through it.
+  const boost = local[0] > 0.85 && dot(want, car.fwd) > 450 && car.boost > 0;
 
   return { throttle: 0, steer: 0, pitch, yaw, roll, jump: false, boost, handbrake: false };
 }
