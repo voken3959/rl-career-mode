@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { RLMatch, SCENE_SCALE as RL_S } from './rl/rlmode.js';
 import { sfx } from './sfx.js';
 import { PAD_POSITIONS as RL_PADS, PAD_IS_BIG as RL_PAD_BIG, BALL_RADIUS as RL_BALL_R } from './rl/constants.js';
@@ -538,34 +539,34 @@ function createCar(team, isPlayer) {
   group.add(chassis);
   const wheels = [];
 
-  // The body is a plain box the size of the Octane hitbox (118 x 36 x 84 uu, centred 13.9 uu forward and
-  // 20.75 uu above the car origin) with four wheels. unit converts uu to scene units; the chassis origin is
-  // on the ground under the car origin, with x shifted so the hitbox is centred.
-  const unit = RL_MODE ? RL_S : 4.1 / 118;
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(118 * unit, 36.2 * unit, 84.2 * unit),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.3 })
-  );
-  body.position.y = (17 + 20.75) * unit;
-  body.castShadow = true;
-  chassis.add(body);
-
-  // Wheel positions relative to the hitbox centre: front axle forward, rear axle back.
-  const wheelRadius = 12 * unit;
-  const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 9 * unit, 16);
-  wheelGeometry.rotateX(Math.PI / 2); // axle along z
-  const tyreMaterial = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.9 });
-  const hubMaterial = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.5, metalness: 0.4 });
-  [[37, 34], [37, -34], [-48, 34], [-48, -34]].forEach(([wx, wz]) => {
-    const wheel = new THREE.Group();
-    wheel.position.set(wx * unit, wheelRadius, wz * unit);
-    wheel.add(new THREE.Mesh(wheelGeometry, tyreMaterial));
-    // A light bar across the hub so the wheel's rotation is visible.
-    const hub = new THREE.Mesh(new THREE.BoxGeometry(wheelRadius * 1.5, wheelRadius * 0.28, 9.6 * unit), hubMaterial);
-    wheel.add(hub);
-    chassis.add(wheel);
-    wheels.push(wheel);
-  });
+  // Use the supplied Fennec GLB as the car body. It is loaded once and cloned
+  // per car; its wheels are part of the model, so they pitch with the chassis.
+  if (carModelTemplate) {
+    const model = carModelTemplate.clone(true);
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        // Clone materials so team colors do not leak between cars.
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material = child.material.map(mat => (mat ? mat.clone() : mat));
+          } else {
+            child.material = child.material.clone();
+          }
+        }
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(mat => {
+          if (mat && mat.name === 'Fennec_-_Body') mat.color.setHex(color);
+        });
+      }
+    });
+    chassis.add(model);
+  } else {
+    const fallback = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.1, 2.4), new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 }));
+    fallback.position.y = 1.05;
+    chassis.add(fallback);
+  }
 
   const flame = new THREE.Mesh(
     new THREE.ConeGeometry(0.38, 1.6, 10),
@@ -641,6 +642,34 @@ function createCar(team, isPlayer) {
     index: 0
   };
 }
+
+// The Fennec model is loaded once and cloned for every car. It is scaled so its length matches the hitbox.
+const carModelTemplate = await (async () => {
+  try {
+    const loadedScene = await new Promise((resolve, reject) => {
+      new GLTFLoader().load('assets/fennec.glb', (gltf) => resolve(gltf.scene), undefined, reject);
+    });
+    const box = new THREE.Box3().setFromObject(loadedScene);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = (RL_MODE ? 118 * RL_S : 4.1) / size.x;
+    loadedScene.scale.setScalar(scale);
+    const box2 = new THREE.Box3().setFromObject(loadedScene);
+    const center = box2.getCenter(new THREE.Vector3());
+    loadedScene.position.x -= center.x;
+    loadedScene.position.z -= center.z;
+    loadedScene.position.y -= box2.min.y;
+    loadedScene.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    return loadedScene;
+  } catch (error) {
+    console.error('Could not load car model', error);
+    return null;
+  }
+})();
 
 // Three cars per side are built once; the selected mode (1v1, 2v2 or 3v3) decides which take part. `cars` holds
 // the active ones, blue first then orange, in the same order as the engine's cars.
