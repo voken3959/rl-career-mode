@@ -1,34 +1,34 @@
 :root {
-  --bg: #08060c;
-  --surface: #100b17;
-  --surface-raised: #151020;
-  --surface-soft: #1a1425;
-  --card: #100b17;
-  --card-solid: #151020;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.16);
+  --bg: #0d1016;
+  --surface: #12151c;
+  --surface-raised: #1b1f29;
+  --surface-soft: #1b1f29;
+  --card: #12151c;
+  --card-solid: #1b1f29;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.18);
   --border: var(--line);
-  --border-bright: rgba(155, 77, 255, 0.52);
-  --text: #f4f2f8;
-  --muted: #a49cae;
-  --dim: #6f677a;
-  --accent: #9b4dff;
-  --accent-deep: #7a00ff;
-  --accent-soft: rgba(155, 77, 255, 0.12);
-  --accent-gradient: linear-gradient(90deg, #b44dff 0%, #7a00ff 65%, #5c00cc 100%);
-  --silver-gradient: linear-gradient(180deg, #ffffff 0%, #ece8f2 58%, #cfc8da 100%);
-  --magenta: #e05cff;
-  --cyan: #9b4dff;
-  --orange: #ff8b5c;
+  --border-bright: rgba(255, 210, 63, 0.5);
+  --text: #e8ebf0;
+  --muted: #8b94a4;
+  --dim: #7a8494;
+  --accent: #ffd23f;
+  --accent-deep: #e6b800;
+  --accent-soft: rgba(255, 210, 63, 0.1);
+  --accent-gradient: #ffd23f;
+  --magenta: #ff4d3d;
+  --cyan: #4d8dff;
+  --orange: #ff7a3d;
   --green: #68d391;
   --red: #ff6b7a;
   --gold: #e7c46a;
-  --purple: #c9a7ff;
-  --ink: #0a0610;
+  --purple: #8fb4ff;
+  --ink: #0d1016;
   --radius: 10px;
   --shadow: none;
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Bahnschrift", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Bricolage Grotesque", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Bricolage Grotesque", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Big Shoulders Display", "Bahnschrift Condensed", "Bahnschrift", "Arial Narrow", sans-serif;
   --font-mono: "Cascadia Mono", "Consolas", monospace;
 }
 
@@ -49,7 +49,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection { background: rgba(155, 77, 255, 0.32); color: #fff; }
+::selection { background: rgba(255, 210, 63, 0.3); color: #fff; }
 
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
@@ -69,7 +69,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   gap: 24px;
   height: 72px;
   padding: 0 32px;
-  background: rgba(8, 6, 12, 0.94);
+  background: rgba(13, 16, 22, 0.94);
   backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--line);
 }
@@ -167,7 +167,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   display: flex;
   gap: 28px;
   padding: 0 32px;
-  background: rgba(8, 6, 12, 0.92);
+  background: rgba(13, 16, 22, 0.92);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
@@ -280,9 +280,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: 28px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(155, 77, 255, 0.07), transparent 54%),
-    var(--surface);
+  background: var(--surface);
   box-shadow: none;
 }
 
@@ -435,7 +433,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   counter-increment: quick;
 }
 .quick::before {
-  content: "0" counter(quick);
+  content: none;
   display: block;
   color: var(--dim);
   font-family: var(--font-display);
@@ -485,15 +483,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .btn-primary {
   color: var(--ink);
-  border-color: #ffffff;
-  background: var(--silver-gradient);
+  border-color: var(--accent);
+  background: var(--accent);
   box-shadow: none;
   font-weight: 600;
 }
 .btn-primary:hover:not(:disabled) {
   color: var(--ink);
-  border-color: #ffffff;
-  background: #ffffff;
+  border-color: #ffe27a;
+  background: #ffe27a;
 }
 
 .btn-orange {
@@ -741,7 +739,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 600;
   letter-spacing: 0.035em;
 }
-.tag.cyan { color: var(--accent); border-color: rgba(155, 77, 255, 0.28); background: rgba(155, 77, 255, 0.06); }
+.tag.cyan { color: var(--cyan); border-color: rgba(77, 141, 255, 0.3); background: rgba(77, 141, 255, 0.07); }
 .tag.gold { color: var(--gold); border-color: rgba(231, 196, 106, 0.24); background: rgba(231, 196, 106, 0.05); }
 .tag.green { color: var(--green); border-color: rgba(104, 211, 145, 0.24); background: rgba(104, 211, 145, 0.05); }
 .tag.red { color: var(--red); border-color: rgba(255, 107, 122, 0.24); background: rgba(255, 107, 122, 0.05); }
@@ -822,7 +820,7 @@ tr.you { background: var(--accent-soft); }
   padding: 10px 11px;
   border-radius: 6px;
   border: 1px solid var(--line);
-  background: #0c0f14;
+  background: var(--bg);
   color: var(--text);
   outline: none;
   transition: border-color 0.15s;
@@ -960,6 +958,21 @@ tr.you { background: var(--accent-soft); }
 @keyframes slideIn { from { transform: translateX(12px); opacity: 0; } }
 
 .hidden { display: none !important; }
+
+/* Big numerals and call-outs use the match center's tall condensed face; everything else stays Bricolage. */
+.page-title, .hero-rank, .stat-value, .result-title, .result-score, .rankup-title, .reward-value {
+  font-family: var(--font-num);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+.page-title { font-size: 36px; }
+.hero-rank { font-size: 64px; letter-spacing: 0; }
+.stat-value { font-size: 34px; }
+.stat-value, .hstat-value, .num, .match-score, .mmr-delta { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
 
 /* ============================== RESPONSIVE ============================== */
 

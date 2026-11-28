@@ -395,7 +395,7 @@ function simulateMatch(playlistId) {
   if (!playlist) return;
 
   if (state.energy < playlist.energy) {
-    showToast('Not enough energy. Rest by training less or wait for the next season.', 'warn');
+    showToast('Not enough energy. Use Rest to recover.', 'warn');
     return;
   }
 
@@ -545,6 +545,19 @@ function spendPoint(key) {
   showToast(attr.label + ' upgraded to ' + state.attributes[key], 'success');
 }
 
+function rest() {
+  if (state.energy >= 100) {
+    showToast('Already fully rested.', 'info');
+    return;
+  }
+  state.energy = clamp(state.energy + 40, 0, 100);
+  state.morale = clamp(state.morale + 1, 0, 100);
+  advanceWeek();
+  saveState();
+  render();
+  showToast('You took a week off. Energy restored.', 'success');
+}
+
 function joinClub(clubName) {
   const club = CLUBS.find(c => c.name === clubName);
   if (!club || club.name === 'Free Agent') return;
@@ -632,7 +645,7 @@ function showOnboarding() {
   ).join('');
 
   openModal({
-    title: 'WELCOME TO THE CLUB',
+    title: 'Welcome to the club',
     closable: false,
     html:
       '<p class="card-desc">You are a raw Bronze rookie with a rocket-powered dream. Train, play matches, climb the ranks and eventually sign with a pro club. Every match matters.</p>' +
@@ -641,7 +654,7 @@ function showOnboarding() {
       '<div class="field"><label>Play style</label><select class="select" id="onbRole">' + roleOptions + '</select></div>' +
       '<p class="card-note">Tip: Free Play and 1v1s are great early ways to build mechanical skill.</p>',
     buttons: [{
-      label: 'START CAREER',
+      label: 'Start career',
       class: 'btn-primary',
       onClick: () => {
         const nameInput = $('#onbName');
@@ -686,8 +699,8 @@ function showMatchModal(match) {
       '<div class="card-title" style="font-size:15px">Match Commentary</div>' +
       commentaryHtml,
     buttons: [
-      { label: 'CONTINUE', class: 'btn-primary', onClick: closeModal },
-      { label: 'PLAY AGAIN', onClick: () => { closeModal(); simulateMatch(match.playlist.id); } }
+      { label: 'Continue', class: 'btn-primary', onClick: closeModal },
+      { label: 'Play again', onClick: () => { closeModal(); simulateMatch(match.playlist.id); } }
     ]
   });
 }
@@ -759,8 +772,8 @@ function renderDashboard() {
         '<div class="progress"><div class="progress-fill" style="width:' + goalProgress + '%"></div></div>' +
         '<div style="margin-top:14px">' +
           (goal.progress >= goal.target
-            ? '<button class="btn btn-primary btn-block" data-action="claim">CLAIM REWARD · +' + goal.reward.xp + ' XP</button>'
-            : '<button class="btn btn-block" disabled>IN PROGRESS</button>') +
+            ? '<button class="btn btn-primary btn-block" data-action="claim">Claim reward · +' + goal.reward.xp + ' XP</button>'
+            : '<button class="btn btn-block" disabled>In progress</button>') +
         '</div>' +
       '</div>'
     : '<div class="empty">No active contract.</div>';
@@ -839,8 +852,8 @@ function renderTraining() {
         '<span class="tag">- ' + drill.energy + ' energy</span>' +
         (locked ? '<span class="tag red">Level ' + drill.level + '</span>' : '') +
       '</div>' +
-      '<button class="btn btn-primary btn-block" data-action="train" data-id="' + drill.id + '"' + (locked || tired ? ' disabled' : '') + '>' +
-      (locked ? 'LOCKED' : (tired ? 'REST REQUIRED' : 'START DRILL')) + '</button>' +
+      '<button class="btn btn-primary btn-block" data-action="' + (tired && !locked ? 'rest' : 'train') + '" data-id="' + drill.id + '"' + (locked ? ' disabled' : '') + '>' +
+      (locked ? 'Locked' : (tired ? 'Rest, +40 energy' : 'Start drill')) + '</button>' +
     '</div>';
   }).join('');
 
@@ -874,8 +887,8 @@ function renderMatches() {
         '<span class="tag">- ' + playlist.energy + ' energy</span>' +
         (playlist.tournament ? '<span class="tag gold">1.35× rewards</span>' : '') +
       '</div>' +
-      '<button class="btn ' + (playlist.tournament ? 'btn-orange' : 'btn-primary') + ' btn-block" data-action="play" data-id="' + playlist.id + '"' + (tired ? ' disabled' : '') + '>' +
-      (tired ? 'REST REQUIRED' : 'QUEUE UP') + '</button>' +
+      '<button class="btn ' + (playlist.tournament ? 'btn-orange' : 'btn-primary') + ' btn-block" data-action="' + (tired ? 'rest' : 'play') + '" data-id="' + playlist.id + '"' + '>' +
+      (tired ? 'Rest, +40 energy' : 'Queue up') + '</button>' +
     '</div>';
   }).join('');
 
@@ -899,7 +912,7 @@ function renderMatches() {
         '<div class="viewer-title">Watch in 3D</div>' +
         '<div class="viewer-desc">A fully simulated match at your current skill level. Bronze rookies whiff; pros don\'t.</div>' +
       '</div>' +
-      '<button class="btn btn-primary" data-action="watch3d">OPEN VIEWER</button>' +
+      '<button class="btn btn-primary" data-action="watch3d">Open viewer</button>' +
     '</div>' +
     '<div class="three-col">' + cards + '</div>' +
     '<div class="card" style="margin-top:18px"><div class="card-head"><div class="card-title">MATCH HISTORY</div>' +
@@ -924,7 +937,7 @@ function renderClubs() {
       '</div>' +
       '<button class="btn ' + (current ? '' : 'btn-primary') + ' btn-block" data-action="join" data-team="' + esc(club.name) + '"' +
       (!eligible || current ? ' disabled' : '') + '>' +
-      (current ? 'YOUR CLUB' : (eligible ? 'SIGN WITH CLUB' : 'LOCKED')) + '</button>' +
+      (current ? 'Your club' : (eligible ? 'Sign with club' : 'Locked')) + '</button>' +
     '</div>';
   }).join('');
 
@@ -994,17 +1007,17 @@ function renderSettings() {
         '<div class="card-title" style="margin-bottom:16px">PLAYER PROFILE</div>' +
         '<div class="field"><label>Player name</label><input class="input" id="setName" maxlength="16" value="' + esc(state.name) + '" /></div>' +
         '<div class="field"><label>Play style</label><select class="select" id="setRole">' + roleOptions + '</select></div>' +
-        '<button class="btn btn-primary" data-action="saveSettings">SAVE PROFILE</button>' +
+        '<button class="btn btn-primary" data-action="saveSettings">Save profile</button>' +
       '</div>' +
       '<div class="card card-pad">' +
         '<div class="card-title" style="margin-bottom:16px">SAVE DATA</div>' +
         '<p class="card-desc">Progress is saved automatically in this browser. Export a backup so you can move it between devices.</p>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">' +
-          '<button class="btn" data-action="export">EXPORT SAVE</button>' +
-          '<button class="btn" data-action="import">IMPORT SAVE</button>' +
+          '<button class="btn" data-action="export">Export save</button>' +
+          '<button class="btn" data-action="import">Import save</button>' +
         '</div>' +
         '<div class="card-title" style="margin:22px 0 14px;color:var(--red)">DANGER ZONE</div>' +
-        '<button class="btn btn-danger" data-action="reset">RESET CAREER</button>' +
+        '<button class="btn btn-danger" data-action="reset">Reset career</button>' +
       '</div>' +
     '</div>';
 }
@@ -1034,6 +1047,7 @@ function handleAction(action, element) {
     case 'play': simulateMatch(element.dataset.id); break;
     case 'join': joinClub(element.dataset.team); break;
     case 'claim': claimContract(); break;
+    case 'rest': rest(); break;
     case 'watch3d': window.location.href = 'match3d.html?tier=' + careerTier(state.mmr); break;
     case 'saveSettings': {
       const nameInput = $('#setName');
@@ -1048,11 +1062,11 @@ function handleAction(action, element) {
     case 'export': {
       const json = JSON.stringify(state, null, 2);
       openModal({
-        title: 'EXPORT SAVE',
+        title: 'Export save',
         html: '<p class="card-desc">Copy this JSON and keep it somewhere safe.</p>' +
           '<textarea class="textarea" id="exportText" readonly>' + esc(json) + '</textarea>',
         buttons: [{
-          label: 'COPY TO CLIPBOARD',
+          label: 'Copy to clipboard',
           class: 'btn-primary',
           onClick: () => {
             const text = $('#exportText');
@@ -1071,11 +1085,11 @@ function handleAction(action, element) {
     }
     case 'import':
       openModal({
-        title: 'IMPORT SAVE',
+        title: 'Import save',
         html: '<p class="card-desc">Paste a previously exported save JSON below. This replaces your current progress.</p>' +
           '<textarea class="textarea" id="importText" placeholder="Paste save JSON here..."></textarea>',
         buttons: [{
-          label: 'IMPORT SAVE',
+          label: 'Import save',
           class: 'btn-primary',
           onClick: () => {
             try {
@@ -1096,13 +1110,13 @@ function handleAction(action, element) {
       break;
     case 'reset':
       openModal({
-        title: 'RESET CAREER?',
+        title: 'Reset career?',
         html: '<p class="card-desc">This permanently deletes your current career: rank, stats, club, achievements and contracts.</p>' +
           '<p class="card-note" style="margin-top:12px;color:var(--red)">This cannot be undone unless you exported a backup.</p>',
         buttons: [
-          { label: 'CANCEL', onClick: closeModal },
+          { label: 'Cancel', onClick: closeModal },
           {
-            label: 'YES, RESET',
+            label: 'Yes, reset',
             class: 'btn-danger',
             onClick: () => {
               localStorage.removeItem(SAVE_KEY);
