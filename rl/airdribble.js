@@ -83,7 +83,7 @@ export function airControls(engine, i, state, error) {
   const dist3 = len(sub(seen, car.pos));
 
   // The ball dropping to the floor only ends it once the car has actually left the ground after it.
-  if (car.isDemoed || state.timer > 8 || car.boost < 5 || dist3 > 3600 || (state.phase !== 'approach' && ball.pos[2] < 130)) {
+  if (car.isDemoed || state.timer > 8 || car.boost < 5 || dist3 > 3600 || (state.phase !== 'approach' && ball.pos[2] < 130 && state.airTime > 0.8)) {
     state.end(2.5, car.boost < 5 ? 'out of boost' : state.timer > 8 ? 'timeout' : dist3 > 3600 ? 'ball too far' : car.isDemoed ? 'demoed' : 'ball fell');
     return null;
   }
@@ -118,11 +118,10 @@ export function airControls(engine, i, state, error) {
   }
 
   if (state.phase === 'launch') {
-    if (state.jumpTicks > 0) {
-      state.jumpTicks--;
-      return { throttle: 1, steer: 0, pitch: 0.4, yaw: 0, roll: 0, jump: state.jumpTicks > 3, boost: true, handbrake: false };
-    }
+    // Straight into the aerial controller so the nose starts coming up (and boost starts) the moment the car leaves
+    // the ground, with the first jump held for its full height.
     state.phase = 'air';
+    state.jumpHold = 0.2;
   }
 
   // In the air: point the nose just under and behind the ball so contact lifts it toward goal.
@@ -133,21 +132,38 @@ export function airControls(engine, i, state, error) {
   }
 
   const lead = [seen[0] + ball.vel[0] * 0.12, seen[1] + ball.vel[1] * 0.12, seen[2] + ball.vel[2] * 0.12];
-  const aim = [lead[0], lead[1] - attack * 70, lead[2] - 40];
+  // A ball low on the ground is scooped: aim above it so the nose comes up under it instead of diving at it.
+  const scoop = clamp((300 - seen[2]) / 200, 0, 1) * 230;
+  const ku = 0;
+  const aim = [lead[0] - car.up[0] * ku, lead[1] - attack * (70) - car.up[1] * ku, lead[2] - (60) + scoop - car.up[2] * ku];
   const gap = sub(aim, car.pos);
   const aimDist = len(gap) || 1;
 
   // Boost only pushes along the nose, and a car already flying sideways keeps flying sideways, so pointing at the
   // ball is not enough: aim the nose along the acceleration that closes the gap AND cancels the velocity difference
   // (plus enough to hold against gravity and a little push toward the opponent's goal).
-  const rv = sub(ball.vel, car.vel);
+  // Velocity tracking: the car wants to move at the ball's velocity plus a closing speed proportional to the gap
+  // (capped), and pushes along the acceleration that gets it there, plus gravity hold and a little push toward goal.
+  // Far away this is "fly at the ball"; at contact it is "match the ball's velocity" with no braking in between.
+  const closeSpeed = Math.min(1100, aimDist * (2));
+  const vDes = [ball.vel[0] + gap[0] / aimDist * closeSpeed, ball.vel[1] + gap[1] / aimDist * closeSpeed, ball.vel[2] + gap[2] / aimDist * closeSpeed];
   const want = [
-    gap[0] * 3 + rv[0] * 3.4,
-    gap[1] * 3 + rv[1] * 3.4 + attack * 250,
-    gap[2] * 3 + rv[2] * 3.4 + 650
+    (vDes[0] - car.vel[0]) * (4),
+    (vDes[1] - car.vel[1]) * (4) + attack * (250),
+    (vDes[2] - car.vel[2]) * (4) + 650
   ];
   const wantLen = len(want) || 1;
-  const d = [want[0] / wantLen, want[1] / wantLen, want[2] / wantLen];
+  let d = [want[0] / wantLen, want[1] / wantLen, want[2] / wantLen];
+  // Close in, the ball is carried rather than chased: point the nose at the spot just under and behind the ball so
+  // the ball stays on the hood, and burn according to how far ahead of the nose it is getting.
+  const near = aimDist < (450);
+  if (near) {
+    // Keep the nose between about 35 and 55 degrees up: flatter and the push no longer holds the pair up, steeper and
+    // it stops moving forward and the ball slides off the back.
+    const hLen = Math.hypot(gap[0], gap[1]) || 1;
+    const elev = clamp(Math.atan2(gap[2], hLen), 0.2, 1.5);
+    d = [gap[0] / hLen * Math.cos(elev), gap[1] / hLen * Math.cos(elev), Math.sin(elev)];
+  }
 
   const local = [dot(d, car.fwd), dot(d, right), dot(d, car.up)];
   const pitchRate = -dot(car.angvel, right);
@@ -156,13 +172,25 @@ export function airControls(engine, i, state, error) {
 
   // Pitch up is angular velocity about -right, yaw is about up, roll about -forward. Gains are chosen so the
   // response is about critically damped given the engine's air-control rates.
-  const pitch = clamp(4 * local[2] - 1.1 * pitchRate, -1, 1);
-  const yaw = clamp(4 * local[1] - 1.3 * yawRate, -1, 1);
+  const pitch = clamp((4) * local[2] - (1.1) * pitchRate, -1, 1);
+  const yaw = clamp((4) * local[1] - (1.1) * yawRate, -1, 1);
   const roll = clamp(3 * right[2] - 0.6 * rollRate, -1, 1);
 
   // Burn only when pointing roughly where the acceleration is wanted and a decent push is needed, so it is
   // pulsed to hold the ball up rather than blasting through it.
-  const boost = local[0] > 0.85 && dot(want, car.fwd) > 450 && car.boost > 0;
+  let boost = local[0] > (0.85) && dot(want, car.fwd) > (450) && car.boost > 0;
+  if (near) {
+    const relBall = sub(ball.pos, car.pos);
+    const bx = dot(relBall, car.fwd);
+    const vf = dot(sub(ball.vel, car.vel), car.fwd);
+    const push = bx + (0.2) * vf > (150);
+    // The pair also has to be held up against gravity: with the ball pressed on the nose, keep burning while it is
+    // not rising, and ease off when it is climbing fast.
+    const hold = bx < 300 && ball.vel[2] < (-100) && car.fwd[2] > 0.35;
+    boost = car.boost > 0 && local[0] > (0.6) && (push || hold);
+  }
 
-  return { throttle: 0, steer: 0, pitch, yaw, roll, jump: false, boost, handbrake: false };
+  const hold = state.jumpHold > 0;
+  if (hold) state.jumpHold -= DT;
+  return { throttle: 0, steer: 0, pitch, yaw, roll, jump: hold, boost, handbrake: false };
 }
